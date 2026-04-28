@@ -1,12 +1,11 @@
-"""ORM models."""
-
 from tortoise import fields
-from tortoise.models import Model
+
+from hallm.db.base.fields import SlugField
+from hallm.db.base.mixins import TimestampMixin
 
 
-class TimestampMixin(Model):
-    created_at = fields.DatetimeField(auto_now_add=True)
-    updated_at = fields.DatetimeField(auto_now=True)
-
-    class Meta:
-        abstract = True
+class FeatureFlag(TimestampMixin):
+    name = fields.CharField()
+    description = fields.TextField(default="")
+    slug = SlugField(unique=True)
+    enabled = fields.BooleanField(default=False)

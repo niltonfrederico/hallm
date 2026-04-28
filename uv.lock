@@ -650,6 +650,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "ipdb" },
     { name = "litellm" },
+    { name = "slugify" },
     { name = "tortoise-orm" },
     { name = "typer" },
 ]
@@ -670,6 +671,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=2.0" },
     { name = "ipdb", specifier = ">=0.13" },
     { name = "litellm", specifier = ">=1.83.14" },
+    { name = "slugify", specifier = ">=0.0.1" },
     { name = "tortoise-orm", extras = ["cli"], specifier = ">=0.22" },
     { name = "typer", specifier = ">=0.23.1" },
 ]
@@ -1826,6 +1828,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
 ]
+
+[[package]]
+name = "slugify"
+version = "0.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/89/fbb7391d777b60c82d4e1376bb181b98e75adf506b3f7ffe837eca64570b/slugify-0.0.1.tar.gz", hash = "sha256:c5703cc11c1a6947536f3ce8bb306766b8bb5a84a53717f5a703ce0f18235e4c", size = 1156, upload-time = "2010-12-07T16:36:05.53Z" }
 
 [[package]]
 name = "sniffio"
