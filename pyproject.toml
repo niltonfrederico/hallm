@@ -9,9 +9,9 @@ dependencies = [
     "environs>=14.0",
     "fastmcp>=2.0",
     "ipdb>=0.13",
-    "litellm>=1.65",
+    "litellm>=1.83.14",
     "tortoise-orm[cli]>=0.22",
-    "typer>=0.15",
+    "typer>=0.23.1",
 ]
 
 [project.scripts]
@@ -64,8 +64,8 @@ indent-style = "space"
 # ---------------------------------------------------------------------------
 # Ty
 # ---------------------------------------------------------------------------
-[tool.ty]
-src = ["src"]
+[tool.ty.src]
+include = ["src"]
 
 # ---------------------------------------------------------------------------
 # Pytest
@@ -83,7 +83,7 @@ omit = ["*/tests/*"]
 # Tortoise ORM / migrations
 # ---------------------------------------------------------------------------
 [tool.tortoise]
-connections = {default = "postgresql://hallm:hallm@localhost:5432/hallm"}
+connections = { default = "postgresql://hallm:hallm@localhost:5432/hallm" }
 
 [tool.tortoise.apps.models]
 models = ["hallm.db.models"]
