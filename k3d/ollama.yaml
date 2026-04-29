@@ -37,6 +37,7 @@ spec:
               until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do sleep 2; done
               ollama pull qwen2.5-coder:3b
               ollama pull deepseek-r1:8b
+              ollama pull qwen2.5-vl:3b
               wait $SERVER_PID
           env:
             - name: HSA_OVERRIDE_GFX_VERSION

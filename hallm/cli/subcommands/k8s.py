@@ -65,19 +65,43 @@ def sync_secrets() -> None:
     )
 
     typer.echo("==> Syncing litellm/config.yaml → ConfigMap 'litellm-config'...")
-    _kubectl_apply_from_stdout(
-        "ConfigMap 'litellm-config'",
+    # Rewrite the Ollama base URL for in-cluster DNS before applying.
+    k8s_config = config_path.read_text().replace(
+        "http://ollama.hallm.local",
+        "http://ollama.ollama.svc.cluster.local:11434",
+    )
+    apply = subprocess.run(
         [
             "kubectl",
             "create",
             "configmap",
             "litellm-config",
-            f"--from-file=config.yaml={config_path}",
+            "--from-literal",
+            f"config.yaml={k8s_config}",
             "--dry-run=client",
             "-o",
             "yaml",
         ],
+        text=True,
+        capture_output=True,
     )
+    if apply.returncode != 0:
+        _fail(f"Failed to build ConfigMap 'litellm-config': {apply.stderr}")
+    kubectl_apply = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=apply.stdout,
+        text=True,
+        capture_output=True,
+    )
+    if kubectl_apply.returncode != 0:
+        _fail(f"Failed to apply ConfigMap 'litellm-config': {kubectl_apply.stderr}")
+    typer.echo("  ConfigMap 'litellm-config' applied.")
+
+    typer.echo("==> Rolling out litellm deployment...")
+    rollout = _run(["kubectl", "rollout", "restart", "deployment/litellm"])
+    if rollout.returncode != 0:
+        _fail(f"Rollout failed: {rollout.stderr}")
+    typer.echo("  deployment/litellm restarted.")
 
     typer.echo("\nDone. Apply manifests with:")
     typer.echo("  kubectl apply -f k3d/postgres.yaml")
