@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/qa.sh",
+            "timeout": 300,
+            "statusMessage": "Running QA (lint + tests)..."
+          }
+        ]
+      }
+    ]
+  }
+}
