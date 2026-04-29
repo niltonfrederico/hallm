@@ -1,3 +1,5 @@
+# QA
+
 Run the full QA suite: lint (with auto-fix retry) then tests.
 
 ## Steps

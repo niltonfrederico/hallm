@@ -5,7 +5,7 @@ LLM-powered assistant exposing an MCP server and a CLI interface, backed by Post
 ## Stack
 
 | Layer | Tool |
-|-------|------|
+| --- | --- |
 | Language | Python 3.14 |
 | Package manager | [uv](https://docs.astral.sh/uv/) |
 | LLM routing | [LiteLLM](https://docs.litellm.ai/) |
@@ -63,7 +63,7 @@ docker compose up --build
 
 ## Project structure
 
-```
+```text
 src/hallm/
 ├── cli/        # Typer CLI entry-points
 ├── core/       # Settings and shared utilities

@@ -7,7 +7,7 @@
 ## Tech stack quick-reference
 
 | Concern | Tool | Notes |
-|---------|------|-------|
+| --- | --- | --- |
 | Runtime | Python 3.14 | Use modern syntax: `X \| Y` unions, `type` aliases, match/case |
 | Package manager | uv | `uv add`, `uv sync`, never pip directly |
 | Type checker | ty | Run via `uv run ty check` |
@@ -31,7 +31,7 @@
 
 ## File layout
 
-```
+```text
 hallm/
 ├── cli/        # Typer app and sub-commands
 ├── core/       # Settings, logging config, shared utils
@@ -55,7 +55,7 @@ tests/
 All models inherit from **`TimestampMixin`** (`db/base/mixins.py`), which provides:
 
 | Field | Type | Notes |
-|-------|------|-------|
+| --- | --- | --- |
 | `id` | `UUIDField` | Primary key, auto-generated |
 | `created_at` | `DatetimeField` | Set on insert (`auto_now_add=True`) |
 | `updated_at` | `DatetimeField` | Updated on every save (`auto_now=True`) |
@@ -69,7 +69,7 @@ All models inherit from **`TimestampMixin`** (`db/base/mixins.py`), which provid
 Manages application feature flags.
 
 | Field | Type | Notes |
-|-------|------|-------|
+| --- | --- | --- |
 | `id` | UUID | PK (from `TimestampMixin`) |
 | `name` | `CharField` | Human-readable name |
 | `description` | `TextField` | Defaults to `""` |
@@ -122,6 +122,10 @@ docker compose --profile lint run lint  # run pre-commit via Docker
 
 1. Add a `@app.command()` function in `hallm/cli/main.py` or a new file, then register it with `app.add_typer(...)`.
 2. Keep business logic out of the CLI layer — delegate to `core/` or `mcp/`.
+
+## Pre-commit hooks
+
+@.claude/rules/pre-commit.md
 
 ## Pull request checklist
 

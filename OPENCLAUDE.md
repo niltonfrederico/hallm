@@ -54,7 +54,7 @@ docker compose logs -f litellm
 The proxy config maps Claude Code's full model IDs to the named entries in [litellm/config.yaml](litellm/config.yaml):
 
 | Claude Code model ID | Proxy model name | Upstream |
-|---|---|---|
+| --- | --- | --- |
 | `claude-sonnet-4-6` | `claude-sonnet` | `anthropic/claude-sonnet-4-6` |
 | `claude-opus-4-7` | `claude-opus` | `anthropic/claude-opus-4-7` |
 | `claude-haiku-4-5-20251001` | `claude-haiku` | `anthropic/claude-haiku-4-5-20251001` |

@@ -3,6 +3,8 @@ agent: agent
 description: Run the full QA suite: lint (with auto-fix retry) then tests.
 ---
 
+# QA
+
 Run the full QA suite following these steps:
 
 1. Run `docker compose down --remove-orphans` to clean up any leftover containers.

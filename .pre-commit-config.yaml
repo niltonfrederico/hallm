@@ -17,6 +17,18 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.22.1
+    hooks:
+      - id: markdownlint-cli2
+        name: markdownlint (ai config)
+        files: ^(\.claude|\.github)/.*\.md$
+
+      - id: markdownlint-cli2
+        name: markdownlint (project docs)
+        files: \.md$
+        exclude: ^(\.claude|\.github)/
+
   - repo: local
     hooks:
       - id: ty
