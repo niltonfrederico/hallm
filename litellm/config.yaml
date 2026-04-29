@@ -1,0 +1,36 @@
+model_list:
+  - model_name: gemini-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: gemini-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: copilot-gpt4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/GITHUB_COPILOT_API_KEY
+      api_base: https://models.inference.ai.azure.com
+
+  - model_name: copilot-o1
+    litellm_params:
+      model: openai/o1
+      api_key: os.environ/GITHUB_COPILOT_API_KEY
+      api_base: https://models.inference.ai.azure.com
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  default_model: gemini-flash

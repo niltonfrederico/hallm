@@ -31,6 +31,47 @@ services:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - ./src:/app/src
+      - ./tests:/app/tests
+
+  tests:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.test
+    environment:
+      DATABASE_URL: "sqlite://:memory:"
+    command: ["pytest", "-m", "not integration"]
+    profiles: ["test"]
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+
+  integration-tests:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.test
+    env_file: .env
+    environment:
+      DATABASE_URL: "sqlite://:memory:"
+      LLM_TIMEOUT: "30"
+    command: ["pytest", "-m", "integration"]
+    profiles: ["test"]
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GITHUB_COPILOT_API_KEY: ${GITHUB_COPILOT_API_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-hallm}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
 
 volumes:
   postgres_data:

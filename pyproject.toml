@@ -76,6 +76,9 @@ include = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "--tb=short -q"
+markers = [
+    "integration: marks tests as integration tests that call real APIs (deselect with '-m not integration')",
+]
 
 [tool.coverage.run]
 source = ["src/hallm"]
