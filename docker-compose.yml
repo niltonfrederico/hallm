@@ -63,10 +63,14 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.test
-    command: ["pre-commit", "run", "--all"]
+    command: ["pre-commit", "run", "--all-files"]
     profiles: ["lint"]
     volumes:
-      - .:/app
+      - ./.git:/app/.git
+      - ./.pre-commit-config.yaml:/app/.pre-commit-config.yaml
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./src:/app/src
+      - ./tests:/app/tests
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest

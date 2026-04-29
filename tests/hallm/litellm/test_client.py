@@ -45,8 +45,8 @@ def _make_stream_chunk(content: str | None) -> MagicMock:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("model", ALL_MODELS)
 class TestComplete:
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_calls_acompletion_with_correct_model(self, model: ModelConfig) -> None:
         mock_response = _make_response()
         with patch("hallm.litellm.client.litellm.acompletion", new_callable=AsyncMock) as mock:
@@ -58,7 +58,6 @@ class TestComplete:
         assert call_kwargs["model"] == model.model
         assert result is mock_response
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_passes_api_key_from_env(self, model: ModelConfig, monkeypatch) -> None:
         monkeypatch.setenv(model.api_key_env, "test-key-123")
         with patch("hallm.litellm.client.litellm.acompletion", new_callable=AsyncMock) as mock:
@@ -67,7 +66,6 @@ class TestComplete:
 
         assert mock.call_args.kwargs["api_key"] == "test-key-123"
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_passes_api_base_when_set(self, model: ModelConfig) -> None:
         with patch("hallm.litellm.client.litellm.acompletion", new_callable=AsyncMock) as mock:
             mock.return_value = _make_response()
@@ -79,7 +77,6 @@ class TestComplete:
         else:
             assert "api_base" not in call_kwargs
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_forwards_extra_kwargs(self, model: ModelConfig) -> None:
         with patch("hallm.litellm.client.litellm.acompletion", new_callable=AsyncMock) as mock:
             mock.return_value = _make_response()
@@ -89,17 +86,18 @@ class TestComplete:
         assert call_kwargs["temperature"] == 0.5
         assert call_kwargs["max_tokens"] == 100
 
-    async def test_uses_settings_model_when_no_model_given(self, monkeypatch) -> None:
-        monkeypatch.setattr("hallm.litellm.client.settings.litellm_model", "openai/gpt-4o-mini")
-        with patch("hallm.litellm.client.litellm.acompletion", new_callable=AsyncMock) as mock:
-            mock.return_value = _make_response()
-            await complete(MESSAGES)
 
-        assert mock.call_args.kwargs["model"] == "openai/gpt-4o-mini"
+async def test_uses_settings_model_when_no_model_given(monkeypatch) -> None:
+    monkeypatch.setattr("hallm.litellm.client.settings.litellm_model", "openai/gpt-4o-mini")
+    with patch("hallm.litellm.client.litellm.acompletion", new_callable=AsyncMock) as mock:
+        mock.return_value = _make_response()
+        await complete(MESSAGES)
+
+    assert mock.call_args.kwargs["model"] == "openai/gpt-4o-mini"
 
 
+@pytest.mark.parametrize("model", ALL_MODELS)
 class TestStream:
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_calls_acompletion_with_stream_true(self, model: ModelConfig) -> None:
         chunks = [_make_stream_chunk("po"), _make_stream_chunk("ng"), _make_stream_chunk(None)]
 
@@ -115,7 +113,6 @@ class TestStream:
 
         assert mock.call_args.kwargs["stream"] is True
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_yields_non_none_deltas(self, model: ModelConfig) -> None:
         chunks = [_make_stream_chunk("po"), _make_stream_chunk("ng"), _make_stream_chunk(None)]
 
@@ -129,7 +126,6 @@ class TestStream:
 
         assert result == ["po", "ng"]
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_passes_correct_model_and_api_key(self, model: ModelConfig, monkeypatch) -> None:
         monkeypatch.setenv(model.api_key_env, "stream-key")
 
@@ -152,29 +148,27 @@ class TestStream:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("model", ALL_MODELS)
 class TestCompleteIntegration:
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_returns_non_empty_response(self, model: ModelConfig) -> None:
         result = await complete(MESSAGES, model=model)
         content = result.choices[0].message.content
         assert isinstance(content, str) and content.strip()
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_extra_kwargs_accepted(self, model: ModelConfig) -> None:
         result = await complete(MESSAGES, model=model, max_tokens=200)
         assert result.choices[0].message.content
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("model", ALL_MODELS)
 class TestStreamIntegration:
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_yields_chunks(self, model: ModelConfig) -> None:
         chunks: list[str] = []
         async for chunk in stream(MESSAGES, model=model):
             chunks.append(chunk)
         assert chunks, "expected at least one streamed chunk"
 
-    @pytest.mark.parametrize("model", ALL_MODELS)
     async def test_chunks_are_strings(self, model: ModelConfig) -> None:
         async for chunk in stream(MESSAGES, model=model):
             assert isinstance(chunk, str)

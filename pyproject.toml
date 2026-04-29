@@ -27,6 +27,7 @@ packages = ["src/hallm"]
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.6.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
