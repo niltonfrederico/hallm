@@ -91,6 +91,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-hallm}
+    extra_hosts:
+      - "ollama.hallm.local:host-gateway"
     command: [ "--config", "/app/config.yaml", "--port", "4000" ]
 
 volumes:

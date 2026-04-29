@@ -39,3 +39,15 @@ GITHUB_COPILOT_O1_REASONING = ModelConfig(
     api_key_env="GITHUB_COPILOT_API_KEY",
     api_base="https://models.inference.ai.azure.com",
 )
+
+QWEN_CODER = ModelConfig(
+    model="ollama_chat/qwen2.5-coder:3b",
+    api_key_env="",
+    api_base="http://ollama.hallm.local",
+)
+
+DEEPSEEK_R1 = ModelConfig(
+    model="ollama_chat/deepseek-r1:8b",
+    api_key_env="",
+    api_base="http://ollama.hallm.local",
+)

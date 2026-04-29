@@ -24,6 +24,7 @@ _CERT_MANAGER_URL = (
 _GPU_SMOKE_MANIFEST = (settings.K3D_PATH / "test" / "gpu-smoke.yaml").read_text()
 _DNS_SMOKE_MANIFEST = (settings.K3D_PATH / "test" / "dns-smoke.yaml").read_text()
 _CERBERUS_MANIFEST = (settings.K3D_PATH / "cerberus.yaml").read_text()
+_OLLAMA_MANIFEST = (settings.K3D_PATH / "ollama.yaml").read_text()
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -105,12 +106,20 @@ def setup() -> None:
     if result.returncode != 0:
         _fail(f"kubectl create namespace failed:\n{result.stderr}")
 
+    typer.echo("\n==> Deploying Ollama (models will pull in the background)...")
+    result = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=_OLLAMA_MANIFEST,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        _fail(f"kubectl apply ollama failed:\n{result.stderr}")
+
     typer.echo("\n==> Done. Cluster is ready.\n")
     typer.echo(
-        "REMINDER: Any deployment that uses the GPU must set:\n"
-        "  env:\n"
-        "    - name: HSA_OVERRIDE_GFX_VERSION\n"
-        '      value: "10.3.0"'
+        "NOTE: Ollama is pulling models in the background. Check progress with:\n"
+        "  kubectl logs -n ollama -l app=ollama -f"
     )
 
 
@@ -186,7 +195,11 @@ def healthcheck() -> None:
     ns_result = _run(["kubectl", "get", "namespace", "ollama"])
     all_ok &= _check("Namespace 'ollama' exists", ns_result.returncode == 0)
 
-    # 5. Cerberus CA ClusterIssuer ready
+    # 5. Ollama service exists
+    svc_result = _run(["kubectl", "get", "svc", "ollama", "-n", "ollama"])
+    all_ok &= _check("Ollama service exists in 'ollama' namespace", svc_result.returncode == 0)
+
+    # 6. Cerberus CA ClusterIssuer ready
     result = _run(["kubectl", "get", "clusterissuer", "cerberus-ca", "-o", "json"])
     try:
         issuer: dict = json.loads(result.stdout)

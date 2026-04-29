@@ -24,6 +24,16 @@ model_list:
       model: anthropic/claude-haiku-4-5-20251001
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  - model_name: qwen-coder
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:3b
+      api_base: http://ollama.hallm.local
+
+  - model_name: deepseek-r1
+    litellm_params:
+      model: ollama_chat/deepseek-r1:8b
+      api_base: http://ollama.hallm.local
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   default_model: gemini-flash
