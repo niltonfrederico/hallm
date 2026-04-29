@@ -1,5 +1,5 @@
 services:
-  db:
+  postgres:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
@@ -26,7 +26,7 @@ services:
       dockerfile: docker/Dockerfile
     restart: unless-stopped
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
     env_file: .env
     environment:
@@ -84,7 +84,7 @@ services:
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
     env_file: .env
     environment:

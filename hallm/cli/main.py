@@ -4,6 +4,7 @@ import typer
 
 from hallm.cli.subcommands import db
 from hallm.cli.subcommands import k3d
+from hallm.cli.subcommands import k8s
 from hallm.cli.subcommands import litellm
 from hallm.cli.subcommands import mcp
 
@@ -12,6 +13,7 @@ app.add_typer(mcp.app, name="mcp")
 app.add_typer(db.app, name="db")
 app.add_typer(litellm.app, name="litellm")
 app.add_typer(k3d.app, name="k3d")
+app.add_typer(k8s.app, name="k8s")
 
 
 @app.callback()
