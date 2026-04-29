@@ -19,6 +19,11 @@ model_list:
       model: anthropic/claude-opus-4-7
       api_key: os.environ/ANTHROPIC_API_KEY
 
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+
   - model_name: copilot-gpt4o
     litellm_params:
       model: openai/gpt-4o
@@ -34,3 +39,7 @@ model_list:
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   default_model: gemini-flash
+  model_aliases:
+    "claude-sonnet-4-6": "claude-sonnet"
+    "claude-opus-4-7": "claude-opus"
+    "claude-haiku-4-5-20251001": "claude-haiku"
