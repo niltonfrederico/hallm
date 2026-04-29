@@ -11,7 +11,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hallm} -d ${POSTGRES_DB:-hallm}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-hallm} -d ${POSTGRES_DB:-hallm}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,8 +43,8 @@ services:
       dockerfile: docker/Dockerfile.test
     environment:
       DATABASE_URL: "sqlite://:memory:"
-    command: ["pytest", "-m", "not integration"]
-    profiles: ["test"]
+    command: [ "pytest", "-m", "not integration" ]
+    profiles: [ "test" ]
     volumes:
       - ./hallm:/app/hallm
       - ./tests:/app/tests
@@ -53,8 +57,8 @@ services:
     environment:
       DATABASE_URL: "sqlite://:memory:"
       LLM_TIMEOUT: "30"
-    command: ["pytest", "-m", "integration"]
-    profiles: ["test"]
+    command: [ "pytest", "-m", "integration" ]
+    profiles: [ "test" ]
     volumes:
       - ./hallm:/app/hallm
       - ./tests:/app/tests
@@ -63,8 +67,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.test
-    command: ["pre-commit", "run", "--all-files"]
-    profiles: ["lint"]
+    command: [ "pre-commit", "run", "--all-files" ]
+    profiles: [ "lint" ]
     volumes:
       - ./.git:/app/.git
       - ./.pre-commit-config.yaml:/app/.pre-commit-config.yaml
@@ -79,12 +83,16 @@ services:
       - "${LITELLM_PORT:-4000}:4000"
     volumes:
       - ./litellm/config.yaml:/app/config.yaml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GITHUB_COPILOT_API_KEY: ${GITHUB_COPILOT_API_KEY}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-hallm}
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    command: [ "--config", "/app/config.yaml", "--port", "4000" ]
 
 volumes:
   postgres_data:

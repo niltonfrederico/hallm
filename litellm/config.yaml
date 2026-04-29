@@ -43,3 +43,4 @@ general_settings:
     "claude-sonnet-4-6": "claude-sonnet"
     "claude-opus-4-7": "claude-opus"
     "claude-haiku-4-5-20251001": "claude-haiku"
+  database_url: os.environ/LITELLM_DATABASE_URL
