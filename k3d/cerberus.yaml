@@ -1,0 +1,46 @@
+# ClusterIssuer — Cerberus (self-signed bootstrap issuer)
+# Bootstrap issuer used only to sign the root CA certificate.
+# Not intended to issue service certificates directly.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cerberus-selfsigned
+  labels:
+    app: cerberus
+spec:
+  selfSigned: {}
+---
+# Certificate — Cerberus root CA
+# Issued by the self-signed bootstrap issuer.
+# Stored as a Secret in the cert-manager namespace so the CA ClusterIssuer can reference it.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cerberus-ca
+  namespace: cert-manager
+  labels:
+    app: cerberus
+spec:
+  isCA: true
+  commonName: underworld-ca
+  secretName: cerberus-ca-secret
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: cerberus-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# ClusterIssuer — Cerberus CA
+# Issues TLS certificates for all services in the underworld cluster.
+# Annotate any Ingress with: cert-manager.io/cluster-issuer: cerberus-ca
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cerberus-ca
+  labels:
+    app: cerberus
+spec:
+  ca:
+    secretName: cerberus-ca-secret

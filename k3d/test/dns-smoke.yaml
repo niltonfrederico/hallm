@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hallm-dns-smoke
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hallm-dns-smoke
+  template:
+    metadata:
+      labels:
+        app: hallm-dns-smoke
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hallm-dns-smoke
+  namespace: default
+spec:
+  selector:
+    app: hallm-dns-smoke
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hallm-dns-smoke
+  namespace: default
+spec:
+  rules:
+    - host: test.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hallm-dns-smoke
+                port:
+                  number: 80

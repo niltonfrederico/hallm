@@ -105,6 +105,59 @@ docker compose up --build        # full stack
 docker compose --profile lint run lint  # run pre-commit via Docker
 ```
 
+## Local Kubernetes cluster (k3d)
+
+The repo includes a `k3d/` directory with Kubernetes manifests for the local dev environment.
+
+### Cluster overview
+
+| Concern | Detail |
+| --- | --- |
+| Cluster manager | k3d (k3s in Docker) |
+| Cluster name | `hallm` |
+| GPU | AMD RX 6600 — mounted via `/dev/kfd` and `/dev/dri` (no `--gpus all`) |
+| Ingress | Traefik on ports 80 / 443, exposed via k3d loadbalancer |
+| TLS | cert-manager + Cerberus self-signed CA (`cerberus-ca` ClusterIssuer) |
+| DNS | `*.hallm.local` resolves to localhost via dnsmasq |
+| Namespaces | `ollama` |
+
+### CLI commands
+
+```bash
+uv run hallm k3d setup        # create cluster, install device plugin + cert-manager + Cerberus CA, create ollama namespace
+uv run hallm k3d healthcheck  # verify cluster, GPU, Cerberus issuer, ports, and run GPU + DNS smoke tests
+uv run hallm k3d nuke         # delete the cluster (prompts for confirmation; use --yes to skip)
+```
+
+### k3d/ file layout
+
+```text
+k3d/
+├── cerberus.yaml     # Cerberus PKI: bootstrap ClusterIssuer, root CA Certificate, CA ClusterIssuer
+└── test/
+    ├── gpu-smoke.yaml   # one-shot Pod that requests amd.com/gpu: "1" — used by healthcheck
+    └── dns-smoke.yaml   # nginx Deployment + Service + Ingress for test.hallm.local — used by healthcheck
+```
+
+### GPU workloads
+
+Any Deployment that uses the GPU **must** set:
+
+```yaml
+env:
+  - name: HSA_OVERRIDE_GFX_VERSION
+    value: "10.3.0"
+resources:
+  limits:
+    amd.com/gpu: "1"
+```
+
+`HSA_OVERRIDE_GFX_VERSION=10.3.0` is required because the RX 6600 (GFX 10.3 / RDNA2) is not in ROCm's official support matrix; this env var forces the correct architecture detection.
+
+### TLS / Ingress
+
+Annotate any Ingress with `cert-manager.io/cluster-issuer: cerberus-ca` to get a certificate signed by the local CA. The CA is self-signed; add `cerberus-ca-secret` to your browser/OS trust store if you need the cert to be trusted locally.
+
 ## Adding a new model
 
 1. Inherit from `TimestampMixin` (not `Model` directly).
