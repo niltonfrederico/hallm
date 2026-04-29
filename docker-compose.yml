@@ -59,6 +59,15 @@ services:
       - ./src:/app/src
       - ./tests:/app/tests
 
+  lint:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.test
+    command: ["pre-commit", "run", "--all"]
+    profiles: ["lint"]
+    volumes:
+      - .:/app
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     restart: unless-stopped
