@@ -13,8 +13,8 @@
 | Type checker | ty | Run via `uv run ty check` |
 | Linter / formatter | Ruff | Run via `uv run ruff check --fix && uv run ruff format` |
 | LLM routing | LiteLLM | `litellm.acompletion` for async calls |
-| MCP server | FastMCP | Tools and resources live in `src/hallm/mcp/` |
-| CLI | Typer | Commands live in `src/hallm/cli/` |
+| MCP server | FastMCP | Tools and resources live in `hallm/mcp/` |
+| CLI | Typer | Commands live in `hallm/cli/` |
 | Config | Environs | All settings come from `Settings` in `core/settings.py` |
 | ORM | Tortoise ORM + asyncpg | Models in `db/models.py`; init via `db.init_db()` |
 | Tests | Pytest | Async tests use `asyncio_mode = "auto"` |
@@ -26,13 +26,13 @@
 - Prefer `async def` for I/O-bound operations (DB queries, LLM calls).
 - All public modules must have a module-level docstring.
 - Use `environs` `Settings` class — never read `os.environ` directly.
-- Keep `src/hallm/` as the sole importable package; test helpers stay in `tests/`.
+- Keep `hallm/` as the sole importable package; test helpers stay in `tests/`.
 - No commented-out code; no bare `except:` clauses.
 
 ## File layout
 
 ```
-src/hallm/
+hallm/
 ├── cli/        # Typer app and sub-commands
 ├── core/       # Settings, logging config, shared utils
 ├── db/         # DB connection, models, migrations helpers
@@ -45,7 +45,7 @@ src/hallm/
 └── mcp/        # FastMCP instance, tools, resources, prompts
 tests/
 ├── conftest.py
-└── <module>/   # Mirror src layout in tests
+└── <module>/   # Mirror hallm layout in tests
 ```
 
 ## Database
@@ -108,19 +108,19 @@ docker compose --profile lint run lint  # run pre-commit via Docker
 ## Adding a new model
 
 1. Inherit from `TimestampMixin` (not `Model` directly).
-2. Define fields in `src/hallm/db/models.py`.
+2. Define fields in `hallm/db/models.py`.
 3. Use `SlugField(from_field="name")` when a slug should mirror another field.
 4. Run `uv run tortoise makemigrations` then `uv run tortoise migrate`.
 
 ## Adding a new MCP tool
 
-1. Add a function decorated with `@mcp.tool()` inside `src/hallm/mcp/server.py` (or a submodule imported there).
+1. Add a function decorated with `@mcp.tool()` inside `hallm/mcp/server.py` (or a submodule imported there).
 2. All parameters must be typed and documented via docstring.
 3. Add a test in `tests/mcp/`.
 
 ## Adding a new CLI command
 
-1. Add a `@app.command()` function in `src/hallm/cli/main.py` or a new file, then register it with `app.add_typer(...)`.
+1. Add a `@app.command()` function in `hallm/cli/main.py` or a new file, then register it with `app.add_typer(...)`.
 2. Keep business logic out of the CLI layer — delegate to `core/` or `mcp/`.
 
 ## Pull request checklist

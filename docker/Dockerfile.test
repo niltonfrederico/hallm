@@ -16,7 +16,7 @@ COPY pyproject.toml README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-install-project
 
-COPY src/ src/
+COPY hallm/ hallm/
 COPY tests/ tests/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync

@@ -14,7 +14,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev --no-install-project
 
 COPY README.md .
-COPY src/ src/
+COPY hallm/ hallm/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --no-dev
 

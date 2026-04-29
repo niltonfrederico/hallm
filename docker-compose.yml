@@ -30,7 +30,7 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
-      - ./src:/app/src
+      - ./hallm:/app/hallm
       - ./tests:/app/tests
 
   tests:
@@ -42,7 +42,7 @@ services:
     command: ["pytest", "-m", "not integration"]
     profiles: ["test"]
     volumes:
-      - ./src:/app/src
+      - ./hallm:/app/hallm
       - ./tests:/app/tests
 
   integration-tests:
@@ -56,7 +56,7 @@ services:
     command: ["pytest", "-m", "integration"]
     profiles: ["test"]
     volumes:
-      - ./src:/app/src
+      - ./hallm:/app/hallm
       - ./tests:/app/tests
 
   lint:
@@ -69,7 +69,7 @@ services:
       - ./.git:/app/.git
       - ./.pre-commit-config.yaml:/app/.pre-commit-config.yaml
       - ./pyproject.toml:/app/pyproject.toml
-      - ./src:/app/src
+      - ./hallm:/app/hallm
       - ./tests:/app/tests
 
   litellm:

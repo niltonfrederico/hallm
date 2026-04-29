@@ -4,10 +4,9 @@ import os
 from collections.abc import AsyncIterator
 
 import litellm
-from litellm import ModelResponse
-
 from hallm.core.settings import settings
 from hallm.litellm.models import ModelConfig
+from litellm import ModelResponse
 
 litellm.drop_params = True
 
