@@ -2,18 +2,21 @@
 
 import typer
 
-app = typer.Typer(name="hallm", add_completion=False)
+from hallm.cli.subcommands import db
+from hallm.cli.subcommands import litellm
+from hallm.cli.subcommands import mcp
+
+app = typer.Typer(name="hallm", add_completion=False, invoke_without_command=True)
+app.add_typer(mcp.app, name="mcp")
+app.add_typer(db.app, name="db")
+app.add_typer(litellm.app, name="litellm")
 
 
-@app.command()
-def serve(
-    host: str = typer.Option("0.0.0.0", help="Host to bind"),
-    port: int = typer.Option(8000, help="Port to bind"),
-) -> None:
-    """Start the MCP server."""
-    from hallm.mcp.server import run
-
-    run(host=host, port=port)
+@app.callback()
+def _root(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 
 def main() -> None:
