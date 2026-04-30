@@ -4,36 +4,13 @@ import subprocess
 
 import typer
 
+from hallm.cli.base import kubectl
+from hallm.cli.base.shell import fail as _fail
 from hallm.core.settings import settings
 
 app = typer.Typer(help="Kubernetes operations.")
 
 _DEFAULT_NAMESPACE = "default"
-
-
-def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    typer.echo(f"+ {' '.join(cmd)}")
-    return subprocess.run(cmd, text=True, capture_output=True)
-
-
-def _fail(message: str) -> None:
-    typer.echo(f"ERROR: {message}", err=True)
-    raise typer.Exit(code=1)
-
-
-def _kubectl_apply_from_stdout(label: str, source_cmd: list[str]) -> None:
-    result = subprocess.run(source_cmd, text=True, capture_output=True)
-    if result.returncode != 0:
-        _fail(f"Failed to build {label}: {result.stderr}")
-    apply = subprocess.run(
-        ["kubectl", "apply", "-f", "-"],
-        input=result.stdout,
-        text=True,
-        capture_output=True,
-    )
-    if apply.returncode != 0:
-        _fail(f"Failed to apply {label}: {apply.stderr}")
-    typer.echo(f"  {label} applied.")
 
 
 @app.command("sync-secrets")
@@ -45,7 +22,7 @@ def sync_secrets() -> None:
         _fail(f".env not found at {env_path}")
 
     typer.echo("==> Syncing .env → Secret 'hallm-env'...")
-    _kubectl_apply_from_stdout(
+    kubectl.apply_from_cmd(
         "Secret 'hallm-env'",
         [
             "kubectl",
@@ -131,26 +108,11 @@ def remove(
         typer.confirm(f"\nDelete all of the above in namespace '{namespace}'?", abort=True)
 
     typer.echo(f"\n==> Deleting manifest resources from {manifest.name}...")
-    result = _run(["kubectl", "delete", "-f", str(manifest), "-n", namespace, "--ignore-not-found"])
-    if result.returncode != 0:
-        _fail(f"Failed to delete manifest resources: {result.stderr}")
+    kubectl.delete_manifest(manifest, namespace=namespace)
 
     if label_resources:
         typer.echo(f"==> Sweeping labelled resources (app={name})...")
         for kind in _SWEEP_KINDS:
-            result = _run(
-                [
-                    "kubectl",
-                    "delete",
-                    kind,
-                    "-n",
-                    namespace,
-                    "-l",
-                    f"app={name}",
-                    "--ignore-not-found",
-                ]
-            )
-            if result.returncode != 0:
-                typer.echo(f"  WARNING: failed to delete {kind}: {result.stderr}", err=True)
+            kubectl.delete_by_label(kind, f"app={name}", namespace=namespace)
 
     typer.echo(f"\nDone. '{name}' and associated resources removed.")

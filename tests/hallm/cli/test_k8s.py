@@ -72,7 +72,7 @@ class TestSyncSecrets:
             result = runner.invoke(app, ["sync-secrets"])
 
         assert result.exit_code == 1
-        assert "Failed to apply" in result.output
+        assert "kubectl apply" in result.output
 
     def test_success(self, env_file: Path):
         with patch(

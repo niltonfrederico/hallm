@@ -91,7 +91,7 @@ class TestSetup:
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
-        assert "device plugin failed" in result.output
+        assert "kubectl apply failed" in result.output
 
     def test_cert_manager_fails(self):
         with patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1)]):
@@ -118,7 +118,7 @@ class TestSetup:
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
-        assert "cerberus" in result.output
+        assert "Cerberus PKI" in result.output
 
 
 # ---------------------------------------------------------------------------

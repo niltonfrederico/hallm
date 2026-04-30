@@ -9,6 +9,10 @@ import urllib.request
 
 import typer
 
+from hallm.cli.base import kubectl
+from hallm.cli.base.shell import check as _check
+from hallm.cli.base.shell import fail as _fail
+from hallm.cli.base.shell import run as _run
 from hallm.core.settings import settings
 
 app = typer.Typer(help="k3d cluster operations.")
@@ -24,22 +28,6 @@ _CERT_MANAGER_URL = (
 
 def _manifest(*parts: str) -> str:
     return (settings.K3D_PATH / "/".join(parts)).read_text()
-
-
-def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    typer.echo(f"+ {' '.join(cmd)}")
-    return subprocess.run(cmd, text=True, capture_output=True)
-
-
-def _fail(message: str) -> None:
-    typer.echo(f"ERROR: {message}", err=True)
-    raise typer.Exit(code=1)
-
-
-def _check(label: str, ok: bool) -> bool:
-    status = "[OK]  " if ok else "[FAIL]"
-    typer.echo(f"  {status} {label}")
-    return ok
 
 
 @app.command()
@@ -66,39 +54,21 @@ def setup() -> None:
         _fail(f"k3d cluster create failed:\n{result.stderr}")
 
     typer.echo("\n==> Installing ROCm k8s device plugin...")
-    result = _run(["kubectl", "apply", "-f", _DEVICE_PLUGIN_URL])
-    if result.returncode != 0:
-        _fail(f"kubectl apply device plugin failed:\n{result.stderr}")
+    kubectl.apply_url(_DEVICE_PLUGIN_URL)
 
     typer.echo("\n==> Installing cert-manager...")
-    result = _run(["kubectl", "apply", "-f", _CERT_MANAGER_URL])
-    if result.returncode != 0:
-        _fail(f"kubectl apply cert-manager failed:\n{result.stderr}")
+    kubectl.apply_url(_CERT_MANAGER_URL)
 
     typer.echo("\n==> Waiting for cert-manager webhook to be ready...")
-    result = _run(
-        [
-            "kubectl",
-            "wait",
-            "--for=condition=Available",
-            "deploy/cert-manager-webhook",
-            "-n",
-            "cert-manager",
-            "--timeout=120s",
-        ]
+    kubectl.wait(
+        "deploy/cert-manager-webhook",
+        "Available",
+        namespace="cert-manager",
+        timeout="120s",
     )
-    if result.returncode != 0:
-        _fail("cert-manager webhook did not become ready in time.")
 
     typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
-    result = subprocess.run(
-        ["kubectl", "apply", "-f", "-"],
-        input=_manifest("cerberus.yaml"),
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        _fail(f"kubectl apply cerberus failed:\n{result.stderr}")
+    kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
 
     typer.echo("\n==> Done. Cluster is ready.")
 
