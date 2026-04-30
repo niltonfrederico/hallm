@@ -39,14 +39,11 @@ def _kubectl_apply_from_stdout(label: str, source_cmd: list[str]) -> None:
 
 @app.command("sync-secrets")
 def sync_secrets() -> None:
-    """Sync .env → Secret 'hallm-env' and litellm/config.yaml → ConfigMap 'litellm-config'."""
+    """Sync .env → Secret 'hallm-env' in the cluster."""
     env_path = settings.ROOT_PATH / ".env"
-    config_path = settings.ROOT_PATH / "litellm" / "config.yaml"
 
     if not env_path.exists():
         _fail(f".env not found at {env_path}")
-    if not config_path.exists():
-        _fail(f"litellm config not found at {config_path}")
 
     typer.echo("==> Syncing .env → Secret 'hallm-env'...")
     _kubectl_apply_from_stdout(
@@ -64,48 +61,100 @@ def sync_secrets() -> None:
         ],
     )
 
-    typer.echo("==> Syncing litellm/config.yaml → ConfigMap 'litellm-config'...")
-    # Rewrite the Ollama base URL for in-cluster DNS before applying.
-    k8s_config = config_path.read_text().replace(
-        "http://ollama.hallm.local",
-        "http://ollama.ollama.svc.cluster.local:11434",
-    )
-    apply = subprocess.run(
-        [
-            "kubectl",
-            "create",
-            "configmap",
-            "litellm-config",
-            "--from-literal",
-            f"config.yaml={k8s_config}",
-            "--dry-run=client",
-            "-o",
-            "yaml",
-        ],
+    typer.echo("\nDone.")
+
+
+@app.command()
+def remove(
+    name: str = typer.Argument(
+        ..., help="Manifest name in k3d/ (without .yaml), e.g. 'ollama', 'postgres'"
+    ),
+    namespace: str = typer.Option(
+        _DEFAULT_NAMESPACE, "--namespace", "-n", help="Kubernetes namespace"
+    ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+) -> None:
+    """Remove a deployment and all associated resources (volumes, secrets, configmaps, ingresses).
+
+    Deletes everything defined in k3d/<name>.yaml, then sweeps for any PVCs, Secrets,
+    and ConfigMaps labelled app=<name> in the target namespace.
+    """
+    manifest = settings.K3D_PATH / f"{name}.yaml"
+    if not manifest.exists():
+        _fail(
+            f"No manifest found at {manifest}. "
+            f"Available manifests: {', '.join(p.stem for p in settings.K3D_PATH.glob('*.yaml'))}"
+        )
+
+    # Collect the resource types to sweep by label after manifest deletion.
+    _SWEEP_KINDS = ["persistentvolumeclaims", "secrets", "configmaps", "ingresses"]
+
+    typer.echo(f"==> Resources to remove (from {manifest.relative_to(settings.ROOT_PATH)}):")
+    preview = subprocess.run(
+        ["kubectl", "get", "-f", str(manifest), "-n", namespace, "--ignore-not-found"],
         text=True,
         capture_output=True,
     )
-    if apply.returncode != 0:
-        _fail(f"Failed to build ConfigMap 'litellm-config': {apply.stderr}")
-    kubectl_apply = subprocess.run(
-        ["kubectl", "apply", "-f", "-"],
-        input=apply.stdout,
-        text=True,
-        capture_output=True,
-    )
-    if kubectl_apply.returncode != 0:
-        _fail(f"Failed to apply ConfigMap 'litellm-config': {kubectl_apply.stderr}")
-    typer.echo("  ConfigMap 'litellm-config' applied.")
+    if preview.stdout.strip():
+        for line in preview.stdout.strip().splitlines():
+            typer.echo(f"  {line}")
+    else:
+        typer.echo("  (no manifest resources currently exist in the cluster)")
 
-    typer.echo("==> Rolling out litellm deployment...")
-    rollout = _run(["kubectl", "rollout", "restart", "deployment/litellm"])
-    if rollout.returncode != 0:
-        _fail(f"Rollout failed: {rollout.stderr}")
-    typer.echo("  deployment/litellm restarted.")
+    label_resources: list[str] = []
+    for kind in _SWEEP_KINDS:
+        result = subprocess.run(
+            [
+                "kubectl",
+                "get",
+                kind,
+                "-n",
+                namespace,
+                "-l",
+                f"app={name}",
+                "--ignore-not-found",
+                "-o",
+                "name",
+            ],
+            text=True,
+            capture_output=True,
+        )
+        for line in result.stdout.strip().splitlines():
+            if line:
+                label_resources.append(line)
 
-    typer.echo("\nDone. Apply manifests with:")
-    typer.echo("  kubectl apply -f k3d/postgres.yaml")
-    typer.echo("  kubectl apply -f k3d/litellm.yaml")
+    if label_resources:
+        typer.echo(f"\n==> Additional resources labelled app={name}:")
+        for r in label_resources:
+            typer.echo(f"  {r}")
+
+    if not yes:
+        typer.confirm(f"\nDelete all of the above in namespace '{namespace}'?", abort=True)
+
+    typer.echo(f"\n==> Deleting manifest resources from {manifest.name}...")
+    result = _run(["kubectl", "delete", "-f", str(manifest), "-n", namespace, "--ignore-not-found"])
+    if result.returncode != 0:
+        _fail(f"Failed to delete manifest resources: {result.stderr}")
+
+    if label_resources:
+        typer.echo(f"==> Sweeping labelled resources (app={name})...")
+        for kind in _SWEEP_KINDS:
+            result = _run(
+                [
+                    "kubectl",
+                    "delete",
+                    kind,
+                    "-n",
+                    namespace,
+                    "-l",
+                    f"app={name}",
+                    "--ignore-not-found",
+                ]
+            )
+            if result.returncode != 0:
+                typer.echo(f"  WARNING: failed to delete {kind}: {result.stderr}", err=True)
+
+    typer.echo(f"\nDone. '{name}' and associated resources removed.")
 
 
 @app.command()

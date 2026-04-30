@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`hallm` is a Python 3.14 project that exposes an LLM-powered assistant as an MCP server (via FastMCP) with a Typer CLI. It uses LiteLLM for model-agnostic LLM calls and Postgres 17 for persistence.
+`hallm` is a Python 3.14 project that exposes an LLM-powered assistant as an MCP server (via FastMCP) with a Typer CLI, backed by Postgres 17 for persistence.
 
 ## Tech stack quick-reference
 
@@ -12,7 +12,6 @@
 | Package manager | uv | `uv add`, `uv sync`, never pip directly |
 | Type checker | ty | Run via `uv run ty check` |
 | Linter / formatter | Ruff | Run via `uv run ruff check --fix && uv run ruff format` |
-| LLM routing | LiteLLM | `litellm.acompletion` for async calls |
 | MCP server | FastMCP | Tools and resources live in `hallm/mcp/` |
 | CLI | Typer | Commands live in `hallm/cli/` |
 | Config | Environs | All settings come from `Settings` in `core/settings.py` |

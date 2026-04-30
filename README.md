@@ -8,7 +8,6 @@ LLM-powered assistant exposing an MCP server and a CLI interface, backed by Post
 | --- | --- |
 | Language | Python 3.14 |
 | Package manager | [uv](https://docs.astral.sh/uv/) |
-| LLM routing | [LiteLLM](https://docs.litellm.ai/) |
 | MCP server | [FastMCP](https://github.com/jlowin/fastmcp) |
 | CLI | [Typer](https://typer.tiangolo.com/) |
 | Type checker | [ty](https://github.com/astral-sh/ty) |

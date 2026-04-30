@@ -9,7 +9,6 @@ dependencies = [
     "environs>=14.0",
     "fastmcp>=2.0",
     "ipdb>=0.13",
-    "litellm>=1.83.14",
     "slugify>=0.0.1",
     "tortoise-orm[cli]>=0.22",
     "typer>=0.23.1",
