@@ -42,6 +42,7 @@ dev = [
 src = ["."]
 line-length = 100
 target-version = "py314"
+exclude = ["hallm/db/migrations"]
 
 [tool.ruff.lint]
 select = [
@@ -89,9 +90,4 @@ omit = ["*/tests/*"]
 # Tortoise ORM / migrations
 # ---------------------------------------------------------------------------
 [tool.tortoise]
-connections = { default = "postgresql://hallm:hallm@localhost:5432/hallm" }
-
-[tool.tortoise.apps.models]
-models = ["hallm.db.models"]
-default_connection = "default"
-migrations = "hallm.db.migrations"
+tortoise_orm = "hallm.db.TORTOISE_ORM"

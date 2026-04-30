@@ -5,7 +5,7 @@ from hallm.db.base.mixins import TimestampMixin
 
 
 class FeatureFlag(TimestampMixin):
-    name = fields.CharField()
+    name = fields.CharField(max_length=64)
     description = fields.TextField(default="")
     slug = SlugField(unique=True)
     enabled = fields.BooleanField(default=False)

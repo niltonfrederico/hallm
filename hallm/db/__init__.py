@@ -5,7 +5,7 @@ from tortoise import Tortoise
 from hallm.core.settings import settings
 
 TORTOISE_ORM: dict = {
-    "connections": {"default": settings.database_localhost_url},
+    "connections": {"default": settings.database_url},
     "apps": {
         "models": {
             "models": ["hallm.db.models"],

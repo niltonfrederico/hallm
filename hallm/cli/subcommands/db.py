@@ -23,7 +23,7 @@ async def _run_bootstrap() -> None:
     typer.echo("==> Connecting to postgres...")
     try:
         conn = await asyncpg.connect(
-            dsn=settings.database_localhost_url,
+            dsn=settings.database_url,
         )
     except OSError as exc:
         fail(f"Cannot reach database at postgres: {exc}")
