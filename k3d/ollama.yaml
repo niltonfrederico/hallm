@@ -26,19 +26,54 @@ spec:
       labels:
         app: ollama
     spec:
-      containers:
-        - name: ollama
+      initContainers:
+        - name: pull-models
           image: ollama/ollama:latest
           command: ["/bin/sh", "-c"]
           args:
             - |
+              set -e
+              echo "[init] Starting ollama server..."
               ollama serve &
-              SERVER_PID=$!
-              until curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; do sleep 2; done
+              OLLAMA_PID=$!
+              echo "[init] Waiting for ollama API to become ready (pid=$OLLAMA_PID)..."
+              until ollama list > /dev/null 2>&1; do
+                echo "[init] Not ready yet, retrying in 2s..."
+                sleep 2
+              done
+              echo "[init] Ollama API is ready."
+              echo "[init] Pulling qwen2.5-coder:3b..."
               ollama pull qwen2.5-coder:3b
+              echo "[init] Pulling deepseek-r1:8b..."
               ollama pull deepseek-r1:8b
-              ollama pull qwen2.5-vl:3b
-              wait $SERVER_PID
+              echo "[init] Pulling qwen2.5vl:3b..."
+              ollama pull qwen2.5vl:3b
+              echo "[init] All models pulled successfully."
+          env:
+            - name: HSA_OVERRIDE_GFX_VERSION
+              value: "10.3.0"
+            - name: OLLAMA_DEBUG
+              value: "1"
+            - name: ROCR_VISIBLE_DEVICES
+              value: ""
+            - name: HIP_VISIBLE_DEVICES
+              value: ""
+            - name: CUDA_VISIBLE_DEVICES
+              value: ""
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          command: ["ollama", "serve"]
           env:
             - name: HSA_OVERRIDE_GFX_VERSION
               value: "10.3.0"
@@ -53,7 +88,7 @@ spec:
           resources:
             requests:
               cpu: "1"
-              memory: 2Gi
+              memory: 4Gi
             limits:
               cpu: "4"
               memory: 12Gi
@@ -65,14 +100,14 @@ spec:
             httpGet:
               path: /api/tags
               port: 11434
-            initialDelaySeconds: 300
+            initialDelaySeconds: 10
             periodSeconds: 10
-            failureThreshold: 30
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/tags
               port: 11434
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 30
             failureThreshold: 3
       volumes:

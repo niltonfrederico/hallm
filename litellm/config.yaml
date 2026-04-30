@@ -37,7 +37,7 @@ model_list:
 
   - model_name: local-vlm-fallback
     litellm_params:
-      model: ollama_chat/qwen2.5-vl:3b
+      model: ollama_chat/qwen2.5vl:3b
       api_base: http://ollama.hallm.local
 
   # ── Routing Groups ────────────────────────────────────────
@@ -76,9 +76,9 @@ router_settings:
   num_retries: 2
   allowed_fails: 1
   fallbacks:
-    - {"agentic":      ["gemini-pro", "claude-opus", "deepseek-r1"]}
-    - {"utility-text": ["qwen-coder"]}
-    - {"ocr":          ["local-vlm-fallback"]}
+    - { "agentic": [ "gemini-pro", "claude-opus", "deepseek-r1" ] }
+    - { "utility-text": [ "qwen-coder" ] }
+    - { "ocr": [ "local-vlm-fallback" ] }
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
