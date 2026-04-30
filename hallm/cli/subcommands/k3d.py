@@ -48,6 +48,8 @@ def setup() -> None:
             "80:80@loadbalancer",
             "-p",
             "443:443@loadbalancer",
+            "-p",
+            "5432:5432@loadbalancer",
         ]
     )
     if result.returncode != 0:

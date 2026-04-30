@@ -59,13 +59,13 @@ spec:
               mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+              command: ["pg_isready", "-U", "hallm", "-d", "hallm"]
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 6
           livenessProbe:
             exec:
-              command: ["pg_isready", "-U", "$(POSTGRES_USER)", "-d", "$(POSTGRES_DB)"]
+              command: ["pg_isready", "-U", "hallm", "-d", "hallm"]
             initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 3
