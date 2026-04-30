@@ -10,8 +10,8 @@ dependencies = [
     "fastmcp>=2.0",
     "ipdb>=0.13",
     "slugify>=0.0.1",
-    "tortoise-orm[cli]>=0.22",
-    "typer>=0.25.0",
+    "tortoise-orm[asyncpg]>=0.22",
+    "typer>=0.25.1",
 ]
 
 [project.scripts]
@@ -26,6 +26,7 @@ packages = ["hallm"]
 
 [dependency-groups]
 dev = [
+    "ipdb>=0.13.13",
     "pre-commit>=4.6.0",
     "pytest>=8.3",
     "pytest-asyncio>=0.25",

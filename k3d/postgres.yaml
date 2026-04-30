@@ -86,3 +86,37 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
+
+---
+# Adds a "postgres" TCP entrypoint on port 5432 to Traefik.
+# k3d already binds 5432:5432@loadbalancer; this tells Traefik to accept it.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      postgres:
+        port: 5432
+        expose:
+          default: true
+        exposedPort: 5432
+        protocol: TCP
+
+---
+# Routes all TCP traffic on the postgres entrypoint to the postgres Service.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: postgres
+  namespace: default
+spec:
+  entryPoints:
+    - postgres
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: postgres
+          port: 5432

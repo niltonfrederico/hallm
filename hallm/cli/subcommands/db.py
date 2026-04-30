@@ -14,48 +14,40 @@ app = typer.Typer(help="Database operations.")
 _BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "bootstrap"
 
 
-def _substitutions() -> dict[str, str]:
-    return {
-        "POSTGRES_PASSWORD": settings.database["password"],
-        "POSTGRES_USER": settings.database["user"],
-        "POSTGRES_DB": settings.database["name"],
-        "POSTGRES_HOST": settings.database["host"],
-        "DATABASE_DRIVER": settings.database["driver"],
-    }
-
-
 async def _run_bootstrap() -> None:
     sql_files = sorted(_BOOTSTRAP_PATH.glob("*.sql"))
     if not sql_files:
         typer.echo("No SQL files found in bootstrap directory.")
         return
 
-    subs = _substitutions()
-
-    typer.echo(f"==> Connecting to {settings.database['host']}...")
+    typer.echo("==> Connecting to postgres...")
     try:
         conn = await asyncpg.connect(
-            host=settings.database["host"],
-            user=settings.database["user"],
-            password=settings.database["password"],
-            database=settings.database["name"],
+            dsn=settings.database_localhost_url,
         )
     except OSError as exc:
-        fail(f"Cannot reach database at {settings.database['host']}: {exc}")
+        fail(f"Cannot reach database at postgres: {exc}")
         return
     except asyncpg.PostgresError as exc:
         fail(f"Database connection failed: {exc}")
         return
 
-    async with conn:
+    try:
         for sql_file in sql_files:
             typer.echo(f"==> Running {sql_file.name}...")
             try:
-                sql = _render(sql_file.read_text(), subs)
+                sql = _render(
+                    sql_file.read_text(),
+                    {
+                        "POSTGRES_PASSWORD": settings.database["password"],
+                    },
+                )
             except ValueError as exc:
                 fail(str(exc))
                 return
             await conn.execute(sql)
+    finally:
+        await conn.close()
 
     typer.echo("\nBootstrap complete.")
 
