@@ -21,10 +21,9 @@ _CERT_MANAGER_URL = (
     "https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"
 )
 
-_GPU_SMOKE_MANIFEST = (settings.K3D_PATH / "test" / "gpu-smoke.yaml").read_text()
-_DNS_SMOKE_MANIFEST = (settings.K3D_PATH / "test" / "dns-smoke.yaml").read_text()
-_CERBERUS_MANIFEST = (settings.K3D_PATH / "cerberus.yaml").read_text()
-_OLLAMA_MANIFEST = (settings.K3D_PATH / "ollama.yaml").read_text()
+
+def _manifest(*parts: str) -> str:
+    return (settings.K3D_PATH / "/".join(parts)).read_text()
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -45,7 +44,7 @@ def _check(label: str, ok: bool) -> bool:
 
 @app.command()
 def setup() -> None:
-    """Create the hallm k3d cluster, install the ROCm device plugin, and create the ollama namespace."""
+    """Create the hallm k3d cluster, install the ROCm device plugin, and apply Cerberus PKI."""
     typer.echo("==> Creating k3d cluster...")
     result = _run(
         [
@@ -94,33 +93,14 @@ def setup() -> None:
     typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
     result = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
-        input=_CERBERUS_MANIFEST,
+        input=_manifest("cerberus.yaml"),
         text=True,
         capture_output=True,
     )
     if result.returncode != 0:
         _fail(f"kubectl apply cerberus failed:\n{result.stderr}")
 
-    typer.echo("\n==> Creating ollama namespace...")
-    result = _run(["kubectl", "create", "namespace", "ollama"])
-    if result.returncode != 0:
-        _fail(f"kubectl create namespace failed:\n{result.stderr}")
-
-    typer.echo("\n==> Deploying Ollama (models will pull in the background)...")
-    result = subprocess.run(
-        ["kubectl", "apply", "-f", "-"],
-        input=_OLLAMA_MANIFEST,
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        _fail(f"kubectl apply ollama failed:\n{result.stderr}")
-
-    typer.echo("\n==> Done. Cluster is ready.\n")
-    typer.echo(
-        "NOTE: Ollama is pulling models in the background. Check progress with:\n"
-        "  kubectl logs -n ollama -l app=ollama -f"
-    )
+    typer.echo("\n==> Done. Cluster is ready.")
 
 
 @app.command()
@@ -140,7 +120,7 @@ def nuke(
 
 @app.command()
 def healthcheck() -> None:
-    """Verify the hallm cluster, GPU, namespaces, ports, and run hello-world smoke tests."""
+    """Verify the hallm cluster, GPU, Cerberus issuer, ports, and run smoke tests."""
     all_ok = True
 
     typer.echo("==> Static checks")
@@ -168,7 +148,7 @@ def healthcheck() -> None:
         gpu_ok = False
     all_ok &= _check("GPU (amd.com/gpu) visible to Kubernetes", gpu_ok)
 
-    # 3. ROCm device plugin DaemonSet ready (name varies by manifest version)
+    # 3. ROCm device plugin DaemonSet ready
     result = _run(["kubectl", "get", "ds", "-n", "kube-system", "-o", "json"])
     try:
         all_ds: dict = json.loads(result.stdout)
@@ -191,15 +171,7 @@ def healthcheck() -> None:
         ds_ok = False
     all_ok &= _check("ROCm device plugin DaemonSet ready", ds_ok)
 
-    # 4. ollama namespace
-    ns_result = _run(["kubectl", "get", "namespace", "ollama"])
-    all_ok &= _check("Namespace 'ollama' exists", ns_result.returncode == 0)
-
-    # 5. Ollama service exists
-    svc_result = _run(["kubectl", "get", "svc", "ollama", "-n", "ollama"])
-    all_ok &= _check("Ollama service exists in 'ollama' namespace", svc_result.returncode == 0)
-
-    # 6. Cerberus CA ClusterIssuer ready
+    # 4. Cerberus CA ClusterIssuer ready
     result = _run(["kubectl", "get", "clusterissuer", "cerberus-ca", "-o", "json"])
     try:
         issuer: dict = json.loads(result.stdout)
@@ -211,7 +183,7 @@ def healthcheck() -> None:
         cerberus_ok = False
     all_ok &= _check("Cerberus CA ClusterIssuer ready", cerberus_ok)
 
-    # 6 & 7. Ports
+    # 5 & 6. Ports
     for port in (80, 443):
         try:
             with socket.create_connection(("localhost", port), timeout=3):
@@ -238,7 +210,7 @@ def _gpu_smoke_test() -> bool:
     """Deploy a GPU-requesting pod, wait for Succeeded, clean up. Return True on pass."""
     apply = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
-        input=_GPU_SMOKE_MANIFEST,
+        input=_manifest("test", "gpu-smoke.yaml"),
         text=True,
         capture_output=True,
     )
@@ -274,7 +246,7 @@ def _dns_smoke_test() -> bool:
     """Deploy nginx + Ingress for test.hallm.local, verify HTTP, clean up. Return True on pass."""
     apply = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
-        input=_DNS_SMOKE_MANIFEST,
+        input=_manifest("test", "dns-smoke.yaml"),
         text=True,
         capture_output=True,
     )
@@ -285,7 +257,6 @@ def _dns_smoke_test() -> bool:
         _cleanup_dns_smoke()
         return False
 
-    # Wait for the nginx pod to be Running
     pod_ok = False
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
@@ -312,7 +283,6 @@ def _dns_smoke_test() -> bool:
         _cleanup_dns_smoke()
         return False
 
-    # HTTP check against test.hallm.local
     http_ok = False
     try:
         with urllib.request.urlopen("http://test.hallm.local", timeout=5) as resp:

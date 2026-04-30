@@ -11,7 +11,7 @@ dependencies = [
     "ipdb>=0.13",
     "slugify>=0.0.1",
     "tortoise-orm[cli]>=0.22",
-    "typer>=0.23.1",
+    "typer>=0.25.0",
 ]
 
 [project.scripts]
