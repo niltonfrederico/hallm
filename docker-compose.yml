@@ -41,6 +41,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.test
+    env_file: .env.example
     environment:
       DATABASE_URL: "sqlite://:memory:"
     command: [ "pytest", "-m", "not integration" ]
@@ -75,7 +76,6 @@ services:
       - ./pyproject.toml:/app/pyproject.toml
       - ./hallm:/app/hallm
       - ./tests:/app/tests
-
 
 volumes:
   postgres_data:
