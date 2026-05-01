@@ -2,11 +2,13 @@
 
 from pathlib import Path
 from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import asyncpg
 from typer.testing import CliRunner
 
+from hallm.cli.subcommands.db import _ensure_service_databases
 from hallm.cli.subcommands.db import app
 
 runner = CliRunner()
@@ -121,3 +123,38 @@ class TestBootstrap:
 
         assert result.exit_code == 1
         assert "UNKNOWN_KEY" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _ensure_service_databases
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureServiceDatabases:
+    async def test_creates_missing_databases(self) -> None:
+        conn = MagicMock()
+        conn.fetch = AsyncMock(return_value=[{"datname": "postgres"}, {"datname": "glitchtip"}])
+        conn.execute = AsyncMock()
+
+        mock_settings = MagicMock()
+        mock_settings.database = {"user": "hallm"}
+        with patch("hallm.cli.subcommands.db.settings", mock_settings):
+            await _ensure_service_databases(conn)
+
+        # glitchtip already exists; only paperless should be created.
+        conn.execute.assert_awaited_once()
+        sql = conn.execute.await_args.args[0]
+        assert "paperless" in sql
+        assert 'OWNER "hallm"' in sql
+
+    async def test_skips_when_all_present(self) -> None:
+        conn = MagicMock()
+        conn.fetch = AsyncMock(return_value=[{"datname": "glitchtip"}, {"datname": "paperless"}])
+        conn.execute = AsyncMock()
+
+        mock_settings = MagicMock()
+        mock_settings.database = {"user": "hallm"}
+        with patch("hallm.cli.subcommands.db.settings", mock_settings):
+            await _ensure_service_databases(conn)
+
+        conn.execute.assert_not_awaited()

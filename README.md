@@ -13,9 +13,9 @@ LLM-powered assistant exposing an MCP server and a CLI interface, backed by Post
 | Type checker | [ty](https://github.com/astral-sh/ty) |
 | Linter / formatter | [Ruff](https://docs.astral.sh/ruff/) |
 | Database | Postgres 17 |
-| Tests | Pytest |
+| Tests | Pytest + pytest-cov (98 % floor) |
 | Containers | Docker Compose |
-| Local Kubernetes | k3d |
+| Local Kubernetes | k3d (managed via `hallm k8s`) |
 | TLS | cert-manager + self-signed CA |
 
 ## Getting started
@@ -48,14 +48,17 @@ docker compose up db -d
 uv run tortoise migrate
 
 # Run the MCP server
-uv run hallm serve
+uv run hallm mcp serve
 ```
 
-### Running tests
+### Testing
 
 ```bash
 uv run pytest
 ```
+
+`pytest-cov` is wired in via `pyproject.toml` and will fail if total branch
+coverage drops below **98 %**. The XML report is written to `coverage.xml`.
 
 ### Running the full stack with Docker
 
@@ -63,17 +66,38 @@ uv run pytest
 docker compose up --build
 ```
 
+## CLI overview
+
+`hallm` is a Typer app. Calling any namespace without a subcommand prints help.
+
+```bash
+uv run hallm                 # root help
+uv run hallm k8s             # cluster lifecycle + ops help
+uv run hallm db bootstrap    # create per-service databases
+uv run hallm mcp serve       # start the MCP server
+uv run hallm container publish <name>   # build + push a Docker image
+```
+
+| Namespace | Commands |
+| --- | --- |
+| `hallm k8s` | `preflight`, `setup`, `healthcheck`, `nuke`, `get-cert`, `sync-secrets`, `remove`, `seed-heimdall` |
+| `hallm db` | `bootstrap` |
+| `hallm mcp` | `serve` |
+| `hallm container` | `publish` |
+
 ## Local Kubernetes cluster
 
-The `hallm k3d` commands manage a local k3d cluster that mirrors the production environment.
+The `hallm k8s` namespace manages a local k3d cluster that mirrors the
+production environment. Manifests live in [`k8s/`](k8s/); the CLI provisions
+and tears the cluster down on a dedicated rootless Docker daemon.
 
 ```bash
 # create cluster, install GPU device plugin + cert-manager, bootstrap Cerberus CA
-uv run hallm k3d setup
+uv run hallm k8s setup
 # verify cluster health and run GPU + DNS smoke tests
-uv run hallm k3d healthcheck
+uv run hallm k8s healthcheck
 # destroy the cluster (add --volumes to also wipe PVC data)
-uv run hallm k3d nuke
+uv run hallm k8s nuke
 ```
 
 ### What gets provisioned
@@ -87,7 +111,7 @@ uv run hallm k3d nuke
 | TLS | cert-manager + **Cerberus** self-signed CA |
 | | `cerberus-ca` ClusterIssuer |
 | DNS | `*.hallm.local` → localhost via dnsmasq |
-| Namespaces | `ollama` |
+| Namespaces | `ollama`, `signoz` |
 
 ### Using TLS
 
@@ -115,19 +139,23 @@ resources:
 ```text
 hallm/
 ├── cli/        # Typer CLI entry-points
-├── core/       # Settings and shared utilities
-├── db/         # Database models and helpers
+│   ├── base/   # Shared subprocess / kubectl / docker / poll / template helpers
+│   └── subcommands/   # k8s, db, mcp, container
+├── core/       # Settings, observability, HTTP base, storage / cache / clients
+├── db/         # Tortoise ORM models and helpers
 └── mcp/        # FastMCP server and tools
-k3d/
-├── cerberus.yaml     # Cerberus PKI manifests
-└── test/             # Smoke-test manifests (GPU pod, DNS nginx)
-tests/          # Pytest test suite
-docker/         # Dockerfile
+k8s/            # Kubernetes manifests (applied by `hallm k8s setup`)
+tests/          # Pytest test suite (mirrors hallm/ layout)
+docker/         # Dockerfiles
+scripts/        # One-shot installers (rootless Docker, etc.)
 ```
 
 ## Environment variables
 
-See [`.env.example`](.env.example) for all supported variables.
+See [`.env.example`](.env.example) for all supported variables. Most have
+sensible defaults; only the database connection vars (`DATABASE_DRIVER`,
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_LOCAL_HOST`,
+`DATABASE_PROD_HOST`) must be supplied.
 
 ## License
 

@@ -88,14 +88,21 @@ include = ["."]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--tb=short -q"
+addopts = "--tb=short -q --cov=hallm --cov-report=term-missing --cov-report=xml"
 markers = [
     "integration: marks tests as integration tests that call real APIs (deselect with '-m not integration')",
 ]
 
 [tool.coverage.run]
 source = ["hallm"]
-omit = ["*/tests/*"]
+branch = true
+omit = ["*/tests/*", "*/migrations/*"]
+
+[tool.coverage.report]
+fail_under = 98
+skip_covered = false
+precision = 2
+show_missing = true
 
 # ---------------------------------------------------------------------------
 # Tortoise ORM / migrations

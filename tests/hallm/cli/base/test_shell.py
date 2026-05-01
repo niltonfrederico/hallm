@@ -33,7 +33,7 @@ class TestRun:
     def test_calls_subprocess_with_text_and_capture(self) -> None:
         with patch("subprocess.run", return_value=_cp()) as mock:
             run(["ls", "-la"])
-        mock.assert_called_once_with(["ls", "-la"], text=True, capture_output=True)
+        mock.assert_called_once_with(["ls", "-la"], text=True, capture_output=True, env=None)
 
     def test_echoes_command(self, capsys: pytest.CaptureFixture[str]) -> None:
         with patch("subprocess.run", return_value=_cp()):
@@ -48,7 +48,7 @@ class TestRun:
     def test_single_element_command(self) -> None:
         with patch("subprocess.run", return_value=_cp()) as mock:
             run(["ls"])
-        mock.assert_called_once_with(["ls"], text=True, capture_output=True)
+        mock.assert_called_once_with(["ls"], text=True, capture_output=True, env=None)
 
 
 # ---------------------------------------------------------------------------

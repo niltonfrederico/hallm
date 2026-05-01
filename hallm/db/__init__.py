@@ -1,10 +1,12 @@
 """Database initialisation helpers."""
 
+from typing import Any
+
 from tortoise import Tortoise
 
 from hallm.core.settings import settings
 
-TORTOISE_ORM: dict = {
+TORTOISE_ORM: dict[str, Any] = {
     "connections": {"default": settings.database_url},
     "apps": {
         "models": {

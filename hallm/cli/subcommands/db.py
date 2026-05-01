@@ -9,7 +9,7 @@ from hallm.cli.base.shell import fail
 from hallm.cli.base.template import render as _render
 from hallm.core.settings import settings
 
-app = typer.Typer(help="Database operations.")
+app = typer.Typer(help="Database operations.", no_args_is_help=True)
 
 _BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "bootstrap"
 
@@ -42,10 +42,8 @@ async def _run_bootstrap() -> None:
         )
     except OSError as exc:
         fail(f"Cannot reach database at postgres: {exc}")
-        return
     except asyncpg.PostgresError as exc:
         fail(f"Database connection failed: {exc}")
-        return
 
     try:
         for sql_file in sql_files:
@@ -59,7 +57,6 @@ async def _run_bootstrap() -> None:
                 )
             except ValueError as exc:
                 fail(str(exc))
-                return
             await conn.execute(sql)
 
         typer.echo("==> Ensuring per-service databases...")

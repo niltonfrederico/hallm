@@ -2,7 +2,7 @@
 
 import typer
 
-app = typer.Typer(help="MCP server operations.")
+app = typer.Typer(help="MCP server operations.", no_args_is_help=True)
 
 
 @app.command()

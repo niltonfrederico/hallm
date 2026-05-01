@@ -12,6 +12,10 @@ import aioboto3
 from hallm.core.settings import settings
 
 
+def _resolve_bucket(bucket: str | None) -> str:
+    return bucket or settings.rustfs_bucket
+
+
 @asynccontextmanager
 async def s3_client() -> AsyncIterator[Any]:
     """Yield a configured aioboto3 S3 client pointing at RustFS."""
@@ -28,12 +32,12 @@ async def s3_client() -> AsyncIterator[Any]:
 
 async def ensure_bucket(bucket: str | None = None) -> None:
     """Create the configured bucket if it doesn't exist."""
-    bucket = bucket or settings.rustfs_bucket
+    target = _resolve_bucket(bucket)
     async with s3_client() as client:
         existing = await client.list_buckets()
         names = {b["Name"] for b in existing.get("Buckets", [])}
-        if bucket not in names:
-            await client.create_bucket(Bucket=bucket)
+        if target not in names:
+            await client.create_bucket(Bucket=target)
 
 
 async def upload_fileobj(
@@ -43,12 +47,12 @@ async def upload_fileobj(
     bucket: str | None = None,
 ) -> str:
     """Upload a file-like object and return its key."""
-    bucket = bucket or settings.rustfs_bucket
+    target = _resolve_bucket(bucket)
     extra: dict[str, str] = {}
     if content_type:
         extra["ContentType"] = content_type
     async with s3_client() as client:
-        await client.upload_fileobj(fileobj, bucket, key, ExtraArgs=extra or None)
+        await client.upload_fileobj(fileobj, target, key, ExtraArgs=extra or None)
     return key
 
 
@@ -65,18 +69,18 @@ async def upload_path(
 
 async def download_bytes(key: str, bucket: str | None = None) -> bytes:
     """Download an object and return its bytes."""
-    bucket = bucket or settings.rustfs_bucket
+    target = _resolve_bucket(bucket)
     async with s3_client() as client:
-        response = await client.get_object(Bucket=bucket, Key=key)
+        response = await client.get_object(Bucket=target, Key=key)
         async with response["Body"] as stream:
             return await stream.read()
 
 
 async def delete(key: str, bucket: str | None = None) -> None:
     """Delete an object by key."""
-    bucket = bucket or settings.rustfs_bucket
+    target = _resolve_bucket(bucket)
     async with s3_client() as client:
-        await client.delete_object(Bucket=bucket, Key=key)
+        await client.delete_object(Bucket=target, Key=key)
 
 
 async def presigned_url(
@@ -85,11 +89,11 @@ async def presigned_url(
     bucket: str | None = None,
 ) -> str:
     """Return a presigned GET URL for the object."""
-    bucket = bucket or settings.rustfs_bucket
+    target = _resolve_bucket(bucket)
     expires = expires or settings.rustfs_presign_expires
     async with s3_client() as client:
         return await client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": bucket, "Key": key},
+            Params={"Bucket": target, "Key": key},
             ExpiresIn=expires,
         )

@@ -1,3 +1,5 @@
+"""Tortoise ORM models for the hallm domain."""
+
 from tortoise import fields
 
 from hallm.core.enums import WorkTypes

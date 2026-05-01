@@ -1,3 +1,5 @@
+"""Shared enumerations used across the hallm domain models."""
+
 from enum import StrEnum
 
 

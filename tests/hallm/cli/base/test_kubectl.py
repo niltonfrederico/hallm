@@ -293,6 +293,24 @@ class TestDeleteManifest:
 # ---------------------------------------------------------------------------
 
 
+class TestGetJson:
+    def test_returns_parsed_dict(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout='{"a": 1}')):
+            assert kubectl.get_json(["clusterissuer", "cerberus-ca"]) == {"a": 1}
+
+    def test_returns_parsed_list(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout="[1, 2, 3]")):
+            assert kubectl.get_json(["pods"]) == [1, 2, 3]
+
+    def test_returns_none_on_kubectl_failure(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):
+            assert kubectl.get_json(["bogus"]) is None
+
+    def test_returns_none_on_parse_error(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout="not-json")):
+            assert kubectl.get_json(["pods"]) is None
+
+
 class TestDeleteByLabel:
     def test_success_does_not_raise(self) -> None:
         with patch("subprocess.run", return_value=_cp()):

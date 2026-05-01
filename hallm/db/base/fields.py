@@ -1,3 +1,5 @@
+"""Custom Tortoise ORM fields used across hallm models."""
+
 import mimetypes
 
 import validators
@@ -11,7 +13,7 @@ from hallm.core import storage
 class SlugField(fields.CharField):
     from_field: str | None = None
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: object, **kwargs: object) -> None:
         kwargs.setdefault("max_length", 60)
         kwargs.setdefault("null", True)
         super().__init__(*args, **kwargs)
@@ -33,7 +35,7 @@ class SlugField(fields.CharField):
 class URLField(fields.CharField):
     accepted_schemes = ("http://", "https://", "ftp://", "ftps://")
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: object, **kwargs: object) -> None:
         kwargs.setdefault("max_length", 2000)
         super().__init__(*args, **kwargs)
 
@@ -80,7 +82,7 @@ class FileField(fields.CharField):
     assign the resulting key to the model attribute.
     """
 
-    def __init__(self, *args, bucket: str | None = None, **kwargs) -> None:
+    def __init__(self, *args: object, bucket: str | None = None, **kwargs: object) -> None:
         kwargs.setdefault("max_length", 512)
         kwargs.setdefault("null", True)
         self.bucket = bucket

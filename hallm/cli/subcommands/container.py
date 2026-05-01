@@ -1,16 +1,15 @@
 """Container image build and push operations."""
 
-import subprocess
 from datetime import UTC
 from datetime import datetime
 
 import typer
 
+from hallm.cli.base import docker as _docker
 from hallm.cli.base.shell import fail as _fail
-from hallm.cli.base.shell import run_or_fail as _run_or_fail
 from hallm.core.settings import settings
 
-app = typer.Typer(help="Container image operations.")
+app = typer.Typer(help="Container image operations.", no_args_is_help=True)
 
 _REGISTRY = "unregistry.hallm.local"
 _ORG = "hallm"
@@ -31,7 +30,7 @@ def publish(
     tag_ts = f"{base_tag}:{timestamp}"
 
     typer.echo(f"==> Building {name} from {dockerfile.name}...")
-    _run_or_fail(
+    _docker.run_or_fail(
         [
             "docker",
             "build",
@@ -48,14 +47,10 @@ def publish(
 
     for tag in (tag_latest, tag_ts):
         typer.echo(f"==> Pushing {tag}...")
-        _run_or_fail(["docker", "push", tag], f"Push failed for {tag}")
+        _docker.run_or_fail(["docker", "push", tag], f"Push failed for {tag}")
 
     typer.echo("==> Pruning local Docker build cache...")
-    result = subprocess.run(
-        ["docker", "buildx", "prune", "--force"],
-        text=True,
-        capture_output=True,
-    )
+    result = _docker.run(["docker", "buildx", "prune", "--force"])
     if result.returncode != 0:
         typer.echo(f"WARNING: cache prune failed: {result.stderr}", err=True)
     else:

@@ -1,7 +1,9 @@
 """kubectl helper functions for CLI subcommands."""
 
+import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -35,6 +37,21 @@ def apply_from_cmd(label: str, source_cmd: list[str]) -> None:
     if src.returncode != 0:
         fail(f"Failed to build {label}: {src.stderr}")
     apply(src.stdout, label=label)
+
+
+def get_json(args: list[str]) -> Any | None:
+    """Run ``kubectl get ... -o json`` and return parsed JSON.
+
+    Returns ``None`` when the command fails or the output is not parseable —
+    callers treat that as a failed health check rather than a hard error.
+    """
+    result = run(["kubectl", "get", *args, "-o", "json"])
+    if result.returncode != 0:
+        return None
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError, ValueError:
+        return None
 
 
 def wait(

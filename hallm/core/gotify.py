@@ -2,8 +2,7 @@
 
 from typing import Any
 
-import httpx
-
+from hallm.core._http import BaseAsyncHTTPClient
 from hallm.core.settings import settings
 
 
@@ -11,12 +10,14 @@ class GotifyError(Exception):
     """Raised when Gotify returns an error response."""
 
 
-class GotifyClient:
+class GotifyClient(BaseAsyncHTTPClient):
     """Use as an async context manager.
 
     >>> async with GotifyClient() as g:
     ...     await g.send("Build done", "Tests passed", priority=5)
     """
+
+    _error_class = GotifyError
 
     def __init__(
         self,
@@ -24,28 +25,8 @@ class GotifyClient:
         app_token: str | None = None,
         timeout: float = 10.0,
     ) -> None:
-        self._base_url = (base_url or settings.gotify_url).rstrip("/")
+        super().__init__(base_url or settings.gotify_url, timeout)
         self._token = app_token or settings.gotify_app_token
-        self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
-
-    async def __aenter__(self) -> GotifyClient:
-        self._client = httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout)
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-
-    def _http(self) -> httpx.AsyncClient:
-        if self._client is None:
-            raise RuntimeError("Use GotifyClient as an async context manager.")
-        return self._client
-
-    def _check(self, response: httpx.Response) -> None:
-        if response.is_error:
-            raise GotifyError(f"[{response.status_code}] {response.text}")
 
     async def send(
         self,

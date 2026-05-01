@@ -45,3 +45,41 @@ spec:
           hostPath:
             path: /run/k3s/containerd/containerd.sock
             type: Socket
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: unregistry
+  namespace: kube-system
+spec:
+  selector:
+    app: unregistry
+  ports:
+    - port: 5000
+      targetPort: 5000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: unregistry
+  namespace: kube-system
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [unregistry.hallm.local]
+      secretName: unregistry-tls
+  rules:
+    - host: unregistry.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: unregistry
+                port:
+                  number: 5000

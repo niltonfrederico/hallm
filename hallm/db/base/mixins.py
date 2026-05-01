@@ -1,3 +1,5 @@
+"""Reusable mixins for Tortoise ORM models."""
+
 from tortoise import fields
 from tortoise.models import Model
 

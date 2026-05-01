@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from hallm.core._http import BaseAsyncHTTPClient
 from hallm.core.settings import settings
 
 
@@ -12,12 +13,14 @@ class PaperlessError(Exception):
     """Raised when Paperless returns an error response."""
 
 
-class PaperlessClient:
+class PaperlessClient(BaseAsyncHTTPClient):
     """Use as an async context manager.
 
     >>> async with PaperlessClient() as p:
     ...     await p.upload_document(Path("invoice.pdf"), tags=["invoice"])
     """
+
+    _error_class = PaperlessError
 
     def __init__(
         self,
@@ -25,32 +28,15 @@ class PaperlessClient:
         token: str | None = None,
         timeout: float = 30.0,
     ) -> None:
-        self._base_url = (base_url or settings.paperless_url).rstrip("/")
+        super().__init__(base_url or settings.paperless_url, timeout)
         self._token = token or settings.paperless_token
-        self._timeout = timeout
-        self._client: httpx.AsyncClient | None = None
 
-    async def __aenter__(self) -> PaperlessClient:
-        self._client = httpx.AsyncClient(
+    def _build_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
             base_url=self._base_url,
             headers={"Authorization": f"Token {self._token}"},
             timeout=self._timeout,
         )
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        if self._client:
-            await self._client.aclose()
-            self._client = None
-
-    def _http(self) -> httpx.AsyncClient:
-        if self._client is None:
-            raise RuntimeError("Use PaperlessClient as an async context manager.")
-        return self._client
-
-    def _check(self, response: httpx.Response) -> None:
-        if response.is_error:
-            raise PaperlessError(f"[{response.status_code}] {response.text}")
 
     async def upload_document(
         self,
