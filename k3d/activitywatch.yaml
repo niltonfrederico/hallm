@@ -28,7 +28,8 @@ spec:
     spec:
       containers:
         - name: aw-server
-          image: activitywatch/aw-server:latest
+          image: hallm/activitywatch:latest
+          imagePullPolicy: Never
           args:
             - --host
             - "0.0.0.0"

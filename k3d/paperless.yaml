@@ -56,7 +56,7 @@ spec:
     spec:
       containers:
         - name: tika
-          image: ghcr.io/paperless-ngx/tika:latest
+          image: apache/tika:latest-full
           ports:
             - containerPort: 9998
           resources:
@@ -175,13 +175,13 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: POSTGRES_PASSWORD
-            - name: PAPERLESS_REDIS
-              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/2"
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: hallm-env
                   key: VALKEY_PASSWORD
+            - name: PAPERLESS_REDIS
+              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/2"
             - name: PAPERLESS_TIKA_ENABLED
               value: "1"
             - name: PAPERLESS_TIKA_ENDPOINT

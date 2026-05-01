@@ -36,8 +36,6 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: SPOTIFY_CLIENT_SECRET
-            - name: MONGO_ENDPOINT
-              value: "mongodb://$(MONGO_INITDB_ROOT_USERNAME):$(MONGO_INITDB_ROOT_PASSWORD)@mongo.default.svc.cluster.local:27017/your_spotify?authSource=admin"
             - name: MONGO_INITDB_ROOT_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -48,6 +46,8 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: MONGO_INITDB_ROOT_PASSWORD
+            - name: MONGO_ENDPOINT
+              value: "mongodb://$(MONGO_INITDB_ROOT_USERNAME):$(MONGO_INITDB_ROOT_PASSWORD)@mongo.default.svc.cluster.local:27017/your_spotify?authSource=admin"
           ports:
             - containerPort: 8080
           resources:

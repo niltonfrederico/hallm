@@ -27,9 +27,7 @@ _CERT_MANAGER_URL = (
 _SIGNOZ_HELM_REPO = "https://charts.signoz.io"
 _SIGNOZ_NAMESPACE = "signoz"
 # Manifests that are applied/managed outside the generic k8s.apply loop.
-_SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
-    {"cerberus.yaml", "signoz-values.yaml", "signoz-ingress.yaml"}
-)
+_SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset({"cerberus.yaml", "signoz-ingress.yaml"})
 
 
 def _manifest(*parts: str) -> str:
@@ -101,7 +99,7 @@ def _install_signoz() -> None:
         ["kubectl", "create", "namespace", _SIGNOZ_NAMESPACE]
     )  # idempotent: ignore "already exists"
 
-    values_file = settings.K3D_PATH / "signoz-values.yaml"
+    values_file = settings.K3D_PATH / "helm" / "signoz-values.yaml"
     install = _run(
         [
             "helm",

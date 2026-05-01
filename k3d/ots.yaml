@@ -17,13 +17,13 @@ spec:
         - name: ots
           image: onetimesecret/onetimesecret:latest
           env:
-            - name: REDIS_URL
-              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/3"
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: hallm-env
                   key: VALKEY_PASSWORD
+            - name: REDIS_URL
+              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/3"
             - name: SECRET
               valueFrom:
                 secretKeyRef:

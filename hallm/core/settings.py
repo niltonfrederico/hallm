@@ -10,9 +10,10 @@ env.read_env()
 
 class Settings:
     # hallm/core/settings.py → hallm/core/ → hallm/ → repo root
-    ROOT_PATH: Path = Path(__file__).parent.parent
-    CLI_PATH: Path = ROOT_PATH / "cli"
-    K3D_PATH: Path = ROOT_PATH / "k3d"
+    ROOT_PATH: Path = Path(__file__).parent.parent.parent
+    PROJECT_PATH: Path = ROOT_PATH / "hallm"
+    CLI_PATH: Path = PROJECT_PATH / "cli"
+    K3D_PATH: Path = PROJECT_PATH / "k3d"
 
     environment: str = env.str("ENVIRONMENT", "localhost")
     debug: bool = env.bool("DEBUG", False)

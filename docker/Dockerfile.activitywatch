@@ -1,0 +1,30 @@
+FROM debian:bookworm-slim AS download
+
+ARG AW_VERSION=0.13.2
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL \
+    "https://github.com/ActivityWatch/activitywatch/releases/download/v${AW_VERSION}/activitywatch-v${AW_VERSION}-linux-x86_64.zip" \
+    -o /tmp/aw.zip \
+    && unzip /tmp/aw.zip activitywatch/aw-server-rust/aw-server-rust -d /tmp/aw/ \
+    && chmod +x /tmp/aw/activitywatch/aw-server-rust/aw-server-rust \
+    && rm /tmp/aw.zip
+
+# aw-server-rust only needs glibc + libgcc — both present in bookworm-slim.
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgcc-s1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=download /tmp/aw/activitywatch/aw-server-rust/aw-server-rust /usr/local/bin/aw-server-rust
+
+VOLUME ["/root/.local/share/activitywatch"]
+
+EXPOSE 5600
+
+ENTRYPOINT ["aw-server-rust"]
+CMD ["--host", "0.0.0.0", "--port", "5600"]
