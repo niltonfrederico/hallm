@@ -35,6 +35,21 @@ _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
     {"cerberus.yaml", "registries.yaml", "signoz-ingress.yaml"}
 )
 
+# Applied when restoring Cerberus CA from an existing cert+key in ~/.hallm/.
+# Skips the self-signed bootstrap issuer and the Certificate resource — the
+# secret is imported directly, so only the CA ClusterIssuer is needed.
+_CERBERUS_CA_ISSUER = """\
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cerberus-ca
+  labels:
+    app: cerberus
+spec:
+  ca:
+    secretName: cerberus-ca-secret
+"""
+
 
 def _manifest(*parts: str) -> str:
     return (settings.K3D_PATH / "/".join(parts)).read_text()
@@ -73,6 +88,68 @@ def _mount_storage() -> None:
     _run_or_fail(
         ["sudo", "mount", device, str(mount_path)], f"Failed to mount {device} at {mount_path}"
     )
+
+
+def _restore_cerberus_from_files(pem_path: Path, key_path: Path) -> None:
+    """Import existing cert+key as cerberus-ca-secret, then apply the CA ClusterIssuer."""
+    kubectl.apply_from_cmd(
+        "Secret 'cerberus-ca-secret'",
+        [
+            "kubectl",
+            "create",
+            "secret",
+            "tls",
+            "cerberus-ca-secret",
+            "-n",
+            "cert-manager",
+            f"--cert={pem_path}",
+            f"--key={key_path}",
+            "--dry-run=client",
+            "-o",
+            "yaml",
+        ],
+    )
+    kubectl.apply(_CERBERUS_CA_ISSUER, label="Cerberus CA ClusterIssuer")
+
+
+def _export_cerberus_ca(pem_path: Path, key_path: Path) -> None:
+    """Wait for the Cerberus CA Certificate to be issued, then save cert+key to ~/.hallm/."""
+    kubectl.wait(
+        "certificate/cerberus-ca",
+        "Ready",
+        namespace="cert-manager",
+        timeout="60s",
+    )
+    cert_result = _run_or_fail(
+        [
+            "kubectl",
+            "get",
+            "secret",
+            "cerberus-ca-secret",
+            "-n",
+            "cert-manager",
+            "-o",
+            r"jsonpath={.data.tls\.crt}",
+        ],
+        "Failed to retrieve cerberus-ca-secret cert",
+    )
+    key_result = _run_or_fail(
+        [
+            "kubectl",
+            "get",
+            "secret",
+            "cerberus-ca-secret",
+            "-n",
+            "cert-manager",
+            "-o",
+            r"jsonpath={.data.tls\.key}",
+        ],
+        "Failed to retrieve cerberus-ca-secret key",
+    )
+    pem_path.write_text(base64.b64decode(cert_result.stdout.strip()).decode())
+    key_path.write_text(base64.b64decode(key_result.stdout.strip()).decode())
+    typer.echo(f"  Cert → {pem_path}")
+    typer.echo(f"  Key  → {key_path}")
 
 
 @app.command()
@@ -125,8 +202,17 @@ def setup() -> None:
         timeout="120s",
     )
 
-    typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
-    kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
+    pem_path = settings.SECRETS_PATH / "cerberus-ca.pem"
+    key_path = settings.SECRETS_PATH / "cerberus-ca.key"
+
+    if pem_path.exists() and key_path.exists():
+        typer.echo(f"\n==> Restoring Cerberus CA from {settings.SECRETS_PATH}...")
+        _restore_cerberus_from_files(pem_path, key_path)
+    else:
+        typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
+        kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
+        typer.echo("\n==> Exporting Cerberus CA to ~/.hallm/...")
+        _export_cerberus_ca(pem_path, key_path)
 
     typer.echo("\n==> Installing SigNoz via Helm...")
     _install_signoz()
@@ -401,16 +487,17 @@ def _cleanup_dns_smoke() -> None:
 
 
 @app.command("get-cert")
-def get_cert(
-    output: str = typer.Option(
-        "cerberus-ca.pem",
-        "--output",
-        "-o",
-        help="Filename to write the certificate to (relative to CWD).",
-    ),
-) -> None:
-    """Fetch the Cerberus CA certificate from the cluster and save it to CWD."""
-    result = _run_or_fail(
+def get_cert() -> None:
+    """Fetch the Cerberus CA cert and key from the cluster and save them to ~/.hallm/.
+
+    Writes cerberus-ca.pem and cerberus-ca.key so that subsequent cluster setups
+    can reuse the same CA instead of generating a new self-signed one.
+    """
+    pem_path = settings.SECRETS_PATH / "cerberus-ca.pem"
+    key_path = settings.SECRETS_PATH / "cerberus-ca.key"
+    settings.SECRETS_PATH.mkdir(parents=True, exist_ok=True)
+
+    cert_result = _run_or_fail(
         [
             "kubectl",
             "get",
@@ -419,16 +506,32 @@ def get_cert(
             "-n",
             "cert-manager",
             "-o",
-            "jsonpath={.data.tls\\.crt}",
+            r"jsonpath={.data.tls\.crt}",
         ],
         "Failed to retrieve cerberus-ca-secret",
     )
-
-    encoded = result.stdout.strip()
-    if not encoded:
+    encoded_cert = cert_result.stdout.strip()
+    if not encoded_cert:
         _fail("cerberus-ca-secret/tls.crt is empty — has the Cerberus PKI been applied?")
 
-    cert_pem = base64.b64decode(encoded).decode()
-    dest = Path.cwd() / output
-    dest.write_text(cert_pem)
-    typer.echo(f"Certificate written to {dest}")
+    key_result = _run_or_fail(
+        [
+            "kubectl",
+            "get",
+            "secret",
+            "cerberus-ca-secret",
+            "-n",
+            "cert-manager",
+            "-o",
+            r"jsonpath={.data.tls\.key}",
+        ],
+        "Failed to retrieve cerberus-ca-secret",
+    )
+    encoded_key = key_result.stdout.strip()
+    if not encoded_key:
+        _fail("cerberus-ca-secret/tls.key is empty — has the Cerberus PKI been applied?")
+
+    pem_path.write_text(base64.b64decode(encoded_cert).decode())
+    key_path.write_text(base64.b64decode(encoded_key).decode())
+    typer.echo(f"Cert → {pem_path}")
+    typer.echo(f"Key  → {key_path}")

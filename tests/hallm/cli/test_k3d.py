@@ -3,12 +3,14 @@
 import base64
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from hallm.cli.subcommands.k3d import app
+from hallm.core.settings import settings
 
 runner = CliRunner()
 
@@ -60,72 +62,105 @@ def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
 # ---------------------------------------------------------------------------
 # setup
 # ---------------------------------------------------------------------------
-# setup() makes 5 subprocess.run calls (storage mount is patched out):
+# generate path — subprocess.run call order (storage mount + signoz + manifests patched out):
 #   1. k3d cluster create
 #   2. kubectl apply device plugin
 #   3. kubectl apply cert-manager
 #   4. kubectl wait cert-manager webhook
-#   5. kubectl apply cerberus (direct subprocess.run, reads cerberus.yaml)
+#   5. kubectl apply cerberus.yaml
+#   6. kubectl wait certificate/cerberus-ca (export)
+#   7. kubectl get cerberus-ca-secret tls.crt (export)
+#   8. kubectl get cerberus-ca-secret tls.key (export)
+#
+# restore path (cert+key present in SECRETS_PATH):
+#   1-4. same as above
+#   5. kubectl create secret tls --dry-run (source for apply_from_cmd)
+#   6. kubectl apply -f - (cerberus-ca-secret)
+#   7. kubectl apply -f - (CA ClusterIssuer)
 
 _PATCH_MOUNT = patch("hallm.cli.subcommands.k3d._mount_storage")
 
+_CERT_B64 = base64.b64encode(
+    b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+).decode()
+_KEY_B64 = base64.b64encode(
+    b"-----BEGIN EC PRIVATE KEY-----\nfake\n-----END EC PRIVATE KEY-----\n"
+).decode()
+
 
 class TestSetup:
-    def test_success(self):
+    def test_success(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
             _PATCH_MOUNT,
-            patch("subprocess.run", return_value=_cp()) as mock,
+            patch("subprocess.run", return_value=_cp(stdout=_CERT_B64)) as mock,
             patch("hallm.cli.subcommands.k3d._manifest", return_value="cerberus: yaml"),
             patch("hallm.cli.subcommands.k3d._install_signoz"),
             patch("hallm.cli.subcommands.k3d._apply_all_service_manifests"),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 0
         assert "Done" in result.output
-        assert mock.call_count == 5
+        assert mock.call_count == 8
 
-    def test_k3d_create_fails(self):
+    def test_k3d_create_fails(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp(returncode=1, stderr="boom")),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "k3d cluster create failed" in result.output
 
-    def test_device_plugin_fails(self):
+    def test_device_plugin_fails(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
             _PATCH_MOUNT,
             patch("subprocess.run", side_effect=[_cp(), _cp(returncode=1, stderr="dp fail")]),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "kubectl apply failed" in result.output
 
-    def test_cert_manager_fails(self):
+    def test_cert_manager_fails(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
             _PATCH_MOUNT,
             patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1)]),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "cert-manager" in result.output
 
-    def test_webhook_wait_fails(self):
+    def test_webhook_wait_fails(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
             _PATCH_MOUNT,
             patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1)]),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "webhook" in result.output
 
-    def test_cerberus_apply_fails(self):
+    def test_cerberus_apply_fails(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
             _PATCH_MOUNT,
             patch(
@@ -133,11 +168,32 @@ class TestSetup:
                 side_effect=[_cp()] * 4 + [_cp(returncode=1, stderr="cerb")],
             ),
             patch("hallm.cli.subcommands.k3d._manifest", return_value="cerberus: yaml"),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "Cerberus PKI" in result.output
+
+    def test_cerberus_restored_from_existing_files(self, tmp_path: Path):
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
+        (secrets_dir / "cerberus-ca.pem").write_text("CERT")
+        (secrets_dir / "cerberus-ca.key").write_text("KEY")
+        with (
+            _PATCH_MOUNT,
+            patch("subprocess.run", return_value=_cp()) as mock,
+            patch("hallm.cli.subcommands.k3d._install_signoz"),
+            patch("hallm.cli.subcommands.k3d._apply_all_service_manifests"),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
+        ):
+            result = runner.invoke(app, ["setup"])
+
+        assert result.exit_code == 0
+        assert "Restoring" in result.output
+        assert (
+            mock.call_count == 7
+        )  # 4 pre-cerberus + create-secret dry-run + apply secret + apply issuer
 
 
 # ---------------------------------------------------------------------------
@@ -333,21 +389,23 @@ class TestHealthcheck:
 
 
 class TestGetCert:
-    _CERT_B64 = base64.b64encode(
-        b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
-    ).decode()
-
-    def test_get_cert_success(self, tmp_path) -> None:
+    def test_get_cert_success(self, tmp_path: Path) -> None:
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
         with (
-            patch("subprocess.run", return_value=_cp(stdout=self._CERT_B64)),
-            patch("pathlib.Path.cwd", return_value=tmp_path),
+            patch(
+                "subprocess.run",
+                side_effect=[_cp(stdout=_CERT_B64), _cp(stdout=_KEY_B64)],
+            ),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
         ):
             result = runner.invoke(app, ["get-cert"])
+
         assert result.exit_code == 0
-        assert "Certificate written to" in result.output
-        cert_file = tmp_path / "cerberus-ca.pem"
-        assert cert_file.exists()
-        assert "BEGIN CERTIFICATE" in cert_file.read_text()
+        assert "Cert →" in result.output
+        assert "Key  →" in result.output
+        assert "BEGIN CERTIFICATE" in (secrets_dir / "cerberus-ca.pem").read_text()
+        assert "BEGIN EC PRIVATE KEY" in (secrets_dir / "cerberus-ca.key").read_text()
 
     def test_get_cert_kubectl_fails(self) -> None:
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):
@@ -355,8 +413,27 @@ class TestGetCert:
         assert result.exit_code == 1
         assert "cerberus-ca-secret" in result.output
 
-    def test_get_cert_empty_cert(self) -> None:
-        with patch("subprocess.run", return_value=_cp(returncode=0, stdout="")):
+    def test_get_cert_empty_cert(self, tmp_path: Path) -> None:
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
+        with (
+            patch("subprocess.run", return_value=_cp(returncode=0, stdout="")),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
+        ):
+            result = runner.invoke(app, ["get-cert"])
+        assert result.exit_code == 1
+        assert "empty" in result.output
+
+    def test_get_cert_empty_key(self, tmp_path: Path) -> None:
+        secrets_dir = tmp_path / ".hallm"
+        secrets_dir.mkdir()
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[_cp(stdout=_CERT_B64), _cp(stdout="")],
+            ),
+            patch.object(settings, "SECRETS_PATH", secrets_dir),
+        ):
             result = runner.invoke(app, ["get-cert"])
         assert result.exit_code == 1
         assert "empty" in result.output
