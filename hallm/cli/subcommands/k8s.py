@@ -360,6 +360,15 @@ def setup() -> None:
         "k3d cluster create failed",
     )
 
+    typer.echo("\n==> Waiting for Kubernetes API server to be ready...")
+    api_ready = poll_until(
+        lambda: _run(["kubectl", "get", "nodes"]).returncode == 0,
+        timeout=120,
+        interval=3.0,
+    )
+    if not api_ready:
+        _fail("Kubernetes API server did not become ready in time")
+
     typer.echo("\n==> Installing ROCm k8s device plugin...")
     kubectl.apply_url(_DEVICE_PLUGIN_URL)
 

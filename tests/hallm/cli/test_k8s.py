@@ -112,7 +112,7 @@ class TestSetup:
 
         assert result.exit_code == 0
         assert "Done" in result.output
-        assert mock.call_count == 8
+        assert mock.call_count == 9
 
     def test_k3d_create_fails(self, tmp_path: Path) -> None:
         secrets = tmp_path / ".hallm"
@@ -128,13 +128,30 @@ class TestSetup:
         assert result.exit_code == 1
         assert "k3d cluster create failed" in result.output
 
+    def test_api_server_not_ready(self, tmp_path: Path) -> None:
+        secrets = tmp_path / ".hallm"
+        secrets.mkdir()
+        with (
+            _PATCH_PREFLIGHT,
+            _PATCH_MOUNT,
+            patch("subprocess.run", return_value=_cp()),
+            patch("hallm.cli.subcommands.k8s.poll_until", return_value=False),
+            patch.object(settings, "SECRETS_PATH", secrets),
+        ):
+            result = runner.invoke(app, ["setup"])
+
+        assert result.exit_code == 1
+        assert "API server" in result.output
+
     def test_device_plugin_fails(self, tmp_path: Path) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", side_effect=[_cp(), _cp(returncode=1, stderr="dp fail")]),
+            patch(
+                "subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1, stderr="dp fail")]
+            ),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -148,7 +165,7 @@ class TestSetup:
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1)]),
+            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1)]),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -162,7 +179,7 @@ class TestSetup:
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1)]),
+            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(), _cp(returncode=1)]),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -178,7 +195,7 @@ class TestSetup:
             _PATCH_MOUNT,
             patch(
                 "subprocess.run",
-                side_effect=[_cp()] * 4 + [_cp(returncode=1, stderr="cerb")],
+                side_effect=[_cp()] * 5 + [_cp(returncode=1, stderr="cerb")],
             ),
             patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
             patch.object(settings, "SECRETS_PATH", secrets),
@@ -205,8 +222,8 @@ class TestSetup:
 
         assert result.exit_code == 0
         assert "Restoring" in result.output
-        # 4 pre-cerberus + create-secret dry-run + apply secret + apply issuer
-        assert mock.call_count == 7
+        # 4 pre-cerberus (incl. api-ready poll) + create-secret dry-run + apply secret + apply issuer
+        assert mock.call_count == 8
 
 
 # ---------------------------------------------------------------------------
