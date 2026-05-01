@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openclaw-data
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openclaw
+  template:
+    metadata:
+      labels:
+        app: openclaw
+    spec:
+      containers:
+        - name: openclaw
+          image: openclaw/openclaw:latest
+          env:
+            - name: OPENCLAW_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: OPENCLAW_AUTH_TOKEN
+            - name: OPENCLAW_HOST
+              value: "0.0.0.0"
+            - name: OPENCLAW_PORT
+              value: "18789"
+          ports:
+            - containerPort: 18789
+          resources:
+            requests:
+              cpu: "200m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /root/.openclaw
+          readinessProbe:
+            tcpSocket:
+              port: 18789
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: openclaw-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openclaw
+  namespace: default
+spec:
+  selector:
+    app: openclaw
+  ports:
+    - port: 80
+      targetPort: 18789
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: openclaw
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [openclaw.hallm.local]
+      secretName: openclaw-tls
+  rules:
+    - host: openclaw.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: openclaw
+                port:
+                  number: 80

@@ -13,6 +13,21 @@ app = typer.Typer(help="Database operations.")
 
 _BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "bootstrap"
 
+# Per-service databases co-hosted on the shared postgres pod.
+_SERVICE_DATABASES: tuple[str, ...] = ("glitchtip", "paperless")
+
+
+async def _ensure_service_databases(conn: asyncpg.Connection) -> None:
+    owner = settings.database["user"]
+    existing = {row["datname"] for row in await conn.fetch("SELECT datname FROM pg_database")}
+    for db_name in _SERVICE_DATABASES:
+        if db_name in existing:
+            typer.echo(f"  - {db_name}: already exists")
+            continue
+        typer.echo(f"  - {db_name}: creating")
+        # CREATE DATABASE cannot run in a transaction — asyncpg's execute() is fine here.
+        await conn.execute(f'CREATE DATABASE "{db_name}" OWNER "{owner}"')
+
 
 async def _run_bootstrap() -> None:
     sql_files = sorted(_BOOTSTRAP_PATH.glob("*.sql"))
@@ -46,6 +61,9 @@ async def _run_bootstrap() -> None:
                 fail(str(exc))
                 return
             await conn.execute(sql)
+
+        typer.echo("==> Ensuring per-service databases...")
+        await _ensure_service_databases(conn)
     finally:
         await conn.close()
 

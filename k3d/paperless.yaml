@@ -1,0 +1,278 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-data
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-media
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-consume
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless-tika
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paperless
+      component: tika
+  template:
+    metadata:
+      labels:
+        app: paperless
+        component: tika
+    spec:
+      containers:
+        - name: tika
+          image: ghcr.io/paperless-ngx/tika:latest
+          ports:
+            - containerPort: 9998
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless-tika
+  namespace: default
+spec:
+  selector:
+    app: paperless
+    component: tika
+  ports:
+    - port: 9998
+      targetPort: 9998
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless-gotenberg
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paperless
+      component: gotenberg
+  template:
+    metadata:
+      labels:
+        app: paperless
+        component: gotenberg
+    spec:
+      containers:
+        - name: gotenberg
+          image: docker.io/gotenberg/gotenberg:8
+          args:
+            - gotenberg
+            - --chromium-disable-javascript=true
+            - --chromium-allow-list=file:///tmp/.*
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless-gotenberg
+  namespace: default
+spec:
+  selector:
+    app: paperless
+    component: gotenberg
+  ports:
+    - port: 3000
+      targetPort: 3000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: paperless
+      component: web
+  template:
+    metadata:
+      labels:
+        app: paperless
+        component: web
+    spec:
+      containers:
+        - name: paperless
+          image: ghcr.io/paperless-ngx/paperless-ngx:latest
+          env:
+            - name: PAPERLESS_URL
+              value: "https://paperless.hallm.local"
+            - name: PAPERLESS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PAPERLESS_SECRET_KEY
+            - name: PAPERLESS_DBHOST
+              value: "postgres.default.svc.cluster.local"
+            - name: PAPERLESS_DBPORT
+              value: "5432"
+            - name: PAPERLESS_DBNAME
+              value: "paperless"
+            - name: PAPERLESS_DBUSER
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_USER
+            - name: PAPERLESS_DBPASS
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PASSWORD
+            - name: PAPERLESS_REDIS
+              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/2"
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: VALKEY_PASSWORD
+            - name: PAPERLESS_TIKA_ENABLED
+              value: "1"
+            - name: PAPERLESS_TIKA_ENDPOINT
+              value: "http://paperless-tika.default.svc.cluster.local:9998"
+            - name: PAPERLESS_TIKA_GOTENBERG_ENDPOINT
+              value: "http://paperless-gotenberg.default.svc.cluster.local:3000"
+            - name: PAPERLESS_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PAPERLESS_ADMIN_USER
+            - name: PAPERLESS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PAPERLESS_ADMIN_PASSWORD
+            - name: PAPERLESS_PORT
+              value: "8000"
+            - name: USERMAP_UID
+              value: "1000"
+            - name: USERMAP_GID
+              value: "1000"
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "300m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /usr/src/paperless/data
+            - name: media
+              mountPath: /usr/src/paperless/media
+            - name: consume
+              mountPath: /usr/src/paperless/consume
+          readinessProbe:
+            httpGet:
+              path: /accounts/login/
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 12
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: paperless-data
+        - name: media
+          persistentVolumeClaim:
+            claimName: paperless-media
+        - name: consume
+          persistentVolumeClaim:
+            claimName: paperless-consume
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperless
+  namespace: default
+spec:
+  selector:
+    app: paperless
+    component: web
+  ports:
+    - port: 80
+      targetPort: 8000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: paperless
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [paperless.hallm.local]
+      secretName: paperless-tls
+  rules:
+    - host: paperless.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: paperless
+                port:
+                  number: 80

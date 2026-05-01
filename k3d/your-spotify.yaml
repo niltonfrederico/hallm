@@ -1,0 +1,168 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: your-spotify-server
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: your-spotify
+      component: server
+  template:
+    metadata:
+      labels:
+        app: your-spotify
+        component: server
+    spec:
+      containers:
+        - name: server
+          image: yooooomi/your_spotify_server:latest
+          env:
+            - name: API_ENDPOINT
+              value: "https://spotify-api.hallm.local"
+            - name: CLIENT_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: SPOTIFY_PUBLIC_URL
+            - name: SPOTIFY_PUBLIC
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: SPOTIFY_CLIENT_ID
+            - name: SPOTIFY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: SPOTIFY_CLIENT_SECRET
+            - name: MONGO_ENDPOINT
+              value: "mongodb://$(MONGO_INITDB_ROOT_USERNAME):$(MONGO_INITDB_ROOT_PASSWORD)@mongo.default.svc.cluster.local:27017/your_spotify?authSource=admin"
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: MONGO_INITDB_ROOT_USERNAME
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: MONGO_INITDB_ROOT_PASSWORD
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: your-spotify-server
+  namespace: default
+spec:
+  selector:
+    app: your-spotify
+    component: server
+  ports:
+    - port: 80
+      targetPort: 8080
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: your-spotify-client
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: your-spotify
+      component: client
+  template:
+    metadata:
+      labels:
+        app: your-spotify
+        component: client
+    spec:
+      containers:
+        - name: client
+          image: yooooomi/your_spotify_client:latest
+          env:
+            - name: API_ENDPOINT
+              value: "https://spotify-api.hallm.local"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 64Mi
+            limits:
+              cpu: "500m"
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: your-spotify-client
+  namespace: default
+spec:
+  selector:
+    app: your-spotify
+    component: client
+  ports:
+    - port: 80
+      targetPort: 3000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: your-spotify
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [spotify.hallm.local, spotify-api.hallm.local]
+      secretName: your-spotify-tls
+  rules:
+    - host: spotify.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: your-spotify-client
+                port:
+                  number: 80
+    - host: spotify-api.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: your-spotify-server
+                port:
+                  number: 80

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ots
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ots
+  template:
+    metadata:
+      labels:
+        app: ots
+    spec:
+      containers:
+        - name: ots
+          image: onetimesecret/onetimesecret:latest
+          env:
+            - name: REDIS_URL
+              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/3"
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: VALKEY_PASSWORD
+            - name: SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: OTS_SECRET
+            - name: HOST
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: OTS_HOST
+            - name: SSL
+              value: "true"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ots
+  namespace: default
+spec:
+  selector:
+    app: ots
+  ports:
+    - port: 80
+      targetPort: 3000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ots
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [ots.hallm.local]
+      secretName: ots-tls
+  rules:
+    - host: ots.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ots
+                port:
+                  number: 80

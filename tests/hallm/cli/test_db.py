@@ -39,7 +39,7 @@ class TestBootstrap:
 
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
-            patch("hallm.cli.subcommands.db._substitutions", return_value={}),
+            patch("hallm.cli.subcommands.db._ensure_service_databases", AsyncMock()),
             patch("asyncpg.connect", AsyncMock(return_value=conn)),
         ):
             result = runner.invoke(app, [])
@@ -53,13 +53,13 @@ class TestBootstrap:
     def test_substitutes_placeholders_in_sql(self, tmp_path: Path) -> None:
         (tmp_path / "init.sql").write_text("PASSWORD '##POSTGRES_PASSWORD##'")
         conn = _make_conn()
+        mock_settings = AsyncMock()
+        mock_settings.database = {"password": "s3cr3t", "user": "hallm"}
 
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
-            patch(
-                "hallm.cli.subcommands.db._substitutions",
-                return_value={"POSTGRES_PASSWORD": "s3cr3t"},
-            ),
+            patch("hallm.cli.subcommands.db._ensure_service_databases", AsyncMock()),
+            patch("hallm.cli.subcommands.db.settings", mock_settings),
             patch("asyncpg.connect", AsyncMock(return_value=conn)),
         ):
             runner.invoke(app, [])
@@ -74,7 +74,7 @@ class TestBootstrap:
 
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
-            patch("hallm.cli.subcommands.db._substitutions", return_value={}),
+            patch("hallm.cli.subcommands.db._ensure_service_databases", AsyncMock()),
             patch("asyncpg.connect", AsyncMock(return_value=conn)),
         ):
             result = runner.invoke(app, [])
@@ -87,7 +87,6 @@ class TestBootstrap:
 
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
-            patch("hallm.cli.subcommands.db._substitutions", return_value={}),
             patch("asyncpg.connect", AsyncMock(side_effect=OSError("refused"))),
         ):
             result = runner.invoke(app, [])
@@ -100,7 +99,6 @@ class TestBootstrap:
 
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
-            patch("hallm.cli.subcommands.db._substitutions", return_value={}),
             patch(
                 "asyncpg.connect",
                 AsyncMock(side_effect=asyncpg.InvalidPasswordError("bad password")),
@@ -117,7 +115,6 @@ class TestBootstrap:
 
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
-            patch("hallm.cli.subcommands.db._substitutions", return_value={}),
             patch("asyncpg.connect", AsyncMock(return_value=conn)),
         ):
             result = runner.invoke(app, [])

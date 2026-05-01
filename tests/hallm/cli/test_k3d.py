@@ -72,6 +72,8 @@ class TestSetup:
         with (
             patch("subprocess.run", return_value=_cp()) as mock,
             patch("hallm.cli.subcommands.k3d._manifest", return_value="cerberus: yaml"),
+            patch("hallm.cli.subcommands.k3d._install_signoz"),
+            patch("hallm.cli.subcommands.k3d._apply_all_service_manifests"),
         ):
             result = runner.invoke(app, ["setup"])
 

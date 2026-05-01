@@ -1,0 +1,44 @@
+# SigNoz Helm chart values for the local k3d cluster.
+# Applied via `helm upgrade --install signoz signoz/signoz -n signoz -f k3d/signoz-values.yaml`
+# from `hallm k3d setup`.
+
+global:
+  storageClass: local-path
+
+# Frontend exposed via a sibling Ingress (k3d/signoz-ingress.yaml), not Helm.
+frontend:
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+
+# OTEL collector — Service ClusterIP so app code reaches it at
+# signoz-otel-collector.signoz.svc.cluster.local:4317
+otelCollector:
+  service:
+    type: ClusterIP
+  ports:
+    otlp-grpc:
+      enabled: true
+      containerPort: 4317
+      servicePort: 4317
+    otlp-http:
+      enabled: true
+      containerPort: 4318
+      servicePort: 4318
+
+# ClickHouse storage tuned for a dev cluster.
+clickhouse:
+  enabled: true
+  cloud: false
+  persistence:
+    enabled: true
+    size: 30Gi
+  zookeeper:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+queryService:
+  service:
+    type: ClusterIP

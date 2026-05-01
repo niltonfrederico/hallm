@@ -5,13 +5,24 @@ description = "LLM-powered assistant with MCP server and CLI"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "aioboto3>=13",
     "asyncpg>=0.30",
     "environs>=14.0",
     "fastmcp>=2.0",
+    "httpx>=0.28.1",
     "ipdb>=0.13",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-exporter-otlp>=1.27",
+    "opentelemetry-instrumentation-asyncpg>=0.48b0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-httpx>=0.48b0",
+    "opentelemetry-sdk>=1.27",
+    "redis>=5",
+    "sentry-sdk>=2",
     "slugify>=0.0.1",
     "tortoise-orm[asyncpg]>=0.22",
     "typer>=0.25.1",
+    "validators>=0.35.0",
 ]
 
 [project.scripts]

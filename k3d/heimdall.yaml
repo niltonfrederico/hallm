@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: heimdall-config
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: heimdall
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: heimdall
+  template:
+    metadata:
+      labels:
+        app: heimdall
+    spec:
+      containers:
+        - name: heimdall
+          image: lscr.io/linuxserver/heimdall:latest
+          env:
+            - name: PUID
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_PUID
+            - name: PGID
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_PGID
+            - name: TZ
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_TZ
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: heimdall-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: heimdall
+  namespace: default
+spec:
+  selector:
+    app: heimdall
+  ports:
+    - port: 80
+      targetPort: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: heimdall
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [heimdall.hallm.local]
+      secretName: heimdall-tls
+  rules:
+    - host: heimdall.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: heimdall
+                port:
+                  number: 80

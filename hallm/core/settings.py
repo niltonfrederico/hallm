@@ -27,8 +27,44 @@ class Settings:
             "production_host": env.str("DATABASE_PROD_HOST"),
             "port": env.int("POSTGRES_PORT", 5432),
         }
+        # RustFS (S3-compatible object storage)
+        self.rustfs_endpoint: str = env.str(
+            "RUSTFS_ENDPOINT",
+            "http://rustfs.default.svc.cluster.local:9000",
+        )
+        self.rustfs_access_key: str = env.str("RUSTFS_ACCESS_KEY", "")
+        self.rustfs_secret_key: str = env.str("RUSTFS_SECRET_KEY", "")
+        self.rustfs_bucket: str = env.str("RUSTFS_BUCKET", "hallm")
+        self.rustfs_region: str = env.str("RUSTFS_REGION", "us-east-1")
+        self.rustfs_presign_expires: int = env.int("RUSTFS_PRESIGN_EXPIRES", 3600)
 
-    debug: bool = env.bool("DEBUG", False)
+        # Valkey (shared Redis-compatible cache)
+        self.valkey_url: str = env.str(
+            "VALKEY_URL",
+            "redis://valkey.default.svc.cluster.local:6379/0",
+        )
+
+        # Gotify (push notifications)
+        self.gotify_url: str = env.str("GOTIFY_URL", "https://gotify.hallm.local")
+        self.gotify_app_token: str = env.str("GOTIFY_APP_TOKEN", "")
+
+        # Paperless-ngx (document management)
+        self.paperless_url: str = env.str("PAPERLESS_URL", "https://paperless.hallm.local")
+        self.paperless_token: str = env.str("PAPERLESS_TOKEN", "")
+
+        # Glitchtip (Sentry-compatible error tracking)
+        self.glitchtip_dsn: str = env.str("GLITCHTIP_DSN", "")
+
+        # SigNoz / OpenTelemetry
+        self.otel_endpoint: str = env.str(
+            "OTEL_ENDPOINT",
+            "http://signoz-otel-collector.signoz.svc.cluster.local:4317",
+        )
+        self.otel_service_name: str = env.str("OTEL_SERVICE_NAME", "hallm")
+
+        # Spotify API (your_spotify)
+        self.spotify_client_id: str = env.str("SPOTIFY_CLIENT_ID", "")
+        self.spotify_client_secret: str = env.str("SPOTIFY_CLIENT_SECRET", "")
 
     def _build_database_url(self, driver: str | None = None) -> str:
         db_driver = self.database["driver"]

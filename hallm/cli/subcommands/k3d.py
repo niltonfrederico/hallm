@@ -24,6 +24,12 @@ _DEVICE_PLUGIN_URL = (
 _CERT_MANAGER_URL = (
     "https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"
 )
+_SIGNOZ_HELM_REPO = "https://charts.signoz.io"
+_SIGNOZ_NAMESPACE = "signoz"
+# Manifests that are applied/managed outside the generic k8s.apply loop.
+_SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
+    {"cerberus.yaml", "signoz-values.yaml", "signoz-ingress.yaml"}
+)
 
 
 def _manifest(*parts: str) -> str:
@@ -72,7 +78,55 @@ def setup() -> None:
     typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
     kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
 
+    typer.echo("\n==> Installing SigNoz via Helm...")
+    _install_signoz()
+
+    typer.echo("\n==> Applying service manifests from k3d/...")
+    _apply_all_service_manifests()
+
     typer.echo("\n==> Done. Cluster is ready.")
+
+
+def _install_signoz() -> None:
+    """Install / upgrade the SigNoz Helm release in the signoz namespace."""
+    add_repo = _run(["helm", "repo", "add", "signoz", _SIGNOZ_HELM_REPO])
+    if add_repo.returncode != 0 and "already exists" not in add_repo.stderr:
+        _fail(f"helm repo add signoz failed:\n{add_repo.stderr}")
+
+    update = _run(["helm", "repo", "update"])
+    if update.returncode != 0:
+        _fail(f"helm repo update failed:\n{update.stderr}")
+
+    _run(
+        ["kubectl", "create", "namespace", _SIGNOZ_NAMESPACE]
+    )  # idempotent: ignore "already exists"
+
+    values_file = settings.K3D_PATH / "signoz-values.yaml"
+    install = _run(
+        [
+            "helm",
+            "upgrade",
+            "--install",
+            "signoz",
+            "signoz/signoz",
+            "-n",
+            _SIGNOZ_NAMESPACE,
+            "-f",
+            str(values_file),
+        ]
+    )
+    if install.returncode != 0:
+        _fail(f"helm install signoz failed:\n{install.stderr}")
+
+    kubectl.apply(_manifest("signoz-ingress.yaml"), label="SigNoz Ingress")
+
+
+def _apply_all_service_manifests() -> None:
+    """Apply every top-level k3d/*.yaml manifest except the ones managed elsewhere."""
+    for manifest in sorted(settings.K3D_PATH.glob("*.yaml")):
+        if manifest.name in _SETUP_SKIP_MANIFESTS:
+            continue
+        kubectl.apply(manifest.read_text(), label=manifest.stem)
 
 
 @app.command()

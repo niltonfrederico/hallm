@@ -6,6 +6,9 @@ from hallm.cli.subcommands import db
 from hallm.cli.subcommands import k3d
 from hallm.cli.subcommands import k8s
 from hallm.cli.subcommands import mcp
+from hallm.core.observability import init_observability
+
+init_observability()
 
 app = typer.Typer(name="hallm", add_completion=False, invoke_without_command=True)
 app.add_typer(mcp.app, name="mcp")

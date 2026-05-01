@@ -2,6 +2,10 @@
 
 from fastmcp import FastMCP
 
+from hallm.core.observability import init_observability
+
+init_observability()
+
 mcp = FastMCP("hallm")
 
 
