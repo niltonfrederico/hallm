@@ -1,5 +1,6 @@
 """Unit tests for the k3d CLI subcommand."""
 
+import base64
 import json
 import subprocess
 from unittest.mock import MagicMock
@@ -59,17 +60,20 @@ def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
 # ---------------------------------------------------------------------------
 # setup
 # ---------------------------------------------------------------------------
-# setup() makes 5 subprocess.run calls:
+# setup() makes 5 subprocess.run calls (storage mount is patched out):
 #   1. k3d cluster create
 #   2. kubectl apply device plugin
 #   3. kubectl apply cert-manager
 #   4. kubectl wait cert-manager webhook
 #   5. kubectl apply cerberus (direct subprocess.run, reads cerberus.yaml)
 
+_PATCH_MOUNT = patch("hallm.cli.subcommands.k3d._mount_storage")
+
 
 class TestSetup:
     def test_success(self):
         with (
+            _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp()) as mock,
             patch("hallm.cli.subcommands.k3d._manifest", return_value="cerberus: yaml"),
             patch("hallm.cli.subcommands.k3d._install_signoz"),
@@ -82,28 +86,40 @@ class TestSetup:
         assert mock.call_count == 5
 
     def test_k3d_create_fails(self):
-        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="boom")):
+        with (
+            _PATCH_MOUNT,
+            patch("subprocess.run", return_value=_cp(returncode=1, stderr="boom")),
+        ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "k3d cluster create failed" in result.output
 
     def test_device_plugin_fails(self):
-        with patch("subprocess.run", side_effect=[_cp(), _cp(returncode=1, stderr="dp fail")]):
+        with (
+            _PATCH_MOUNT,
+            patch("subprocess.run", side_effect=[_cp(), _cp(returncode=1, stderr="dp fail")]),
+        ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "kubectl apply failed" in result.output
 
     def test_cert_manager_fails(self):
-        with patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1)]):
+        with (
+            _PATCH_MOUNT,
+            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1)]),
+        ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "cert-manager" in result.output
 
     def test_webhook_wait_fails(self):
-        with patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1)]):
+        with (
+            _PATCH_MOUNT,
+            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1)]),
+        ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
@@ -111,6 +127,7 @@ class TestSetup:
 
     def test_cerberus_apply_fails(self):
         with (
+            _PATCH_MOUNT,
             patch(
                 "subprocess.run",
                 side_effect=[_cp()] * 4 + [_cp(returncode=1, stderr="cerb")],
@@ -154,6 +171,22 @@ class TestNuke:
 
         assert result.exit_code == 0
         assert "deleted" in result.output
+
+    def test_volumes_flag_wipes_storage(self):
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            result = runner.invoke(app, ["nuke", "--yes", "--volumes"])
+
+        assert result.exit_code == 0
+        assert "deleted" in result.output
+        # Two subprocess.run calls: k3d delete + sudo rm -rf
+        assert mock.call_count == 2
+        rm_args = mock.call_args_list[1][0][0]
+        assert rm_args[:3] == ["sudo", "rm", "-rf"]
+
+    def test_volumes_flag_included_in_confirmation_message(self):
+        result = runner.invoke(app, ["nuke", "--volumes"], input="n\n")
+        assert "data in" in result.output
+        assert result.exit_code != 0
 
 
 # ---------------------------------------------------------------------------
@@ -292,3 +325,38 @@ class TestHealthcheck:
 
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
+
+
+# ---------------------------------------------------------------------------
+# get-cert
+# ---------------------------------------------------------------------------
+
+
+class TestGetCert:
+    _CERT_B64 = base64.b64encode(
+        b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+    ).decode()
+
+    def test_get_cert_success(self, tmp_path) -> None:
+        with (
+            patch("subprocess.run", return_value=_cp(stdout=self._CERT_B64)),
+            patch("pathlib.Path.cwd", return_value=tmp_path),
+        ):
+            result = runner.invoke(app, ["get-cert"])
+        assert result.exit_code == 0
+        assert "Certificate written to" in result.output
+        cert_file = tmp_path / "cerberus-ca.pem"
+        assert cert_file.exists()
+        assert "BEGIN CERTIFICATE" in cert_file.read_text()
+
+    def test_get_cert_kubectl_fails(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):
+            result = runner.invoke(app, ["get-cert"])
+        assert result.exit_code == 1
+        assert "cerberus-ca-secret" in result.output
+
+    def test_get_cert_empty_cert(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=0, stdout="")):
+            result = runner.invoke(app, ["get-cert"])
+        assert result.exit_code == 1
+        assert "empty" in result.output

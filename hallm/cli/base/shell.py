@@ -17,6 +17,14 @@ def fail(message: str) -> None:
     raise typer.Exit(code=1)
 
 
+def run_or_fail(cmd: list[str], error_msg: str) -> subprocess.CompletedProcess[str]:
+    """Run a command; call fail() with error_msg + stderr if it exits non-zero."""
+    result = run(cmd)
+    if result.returncode != 0:
+        fail(f"{error_msg}:\n{result.stderr}")
+    return result
+
+
 def check(label: str, ok: bool) -> bool:
     """Print a [OK] / [FAIL] status line and return the ok value."""
     status = "[OK]  " if ok else "[FAIL]"

@@ -15,6 +15,7 @@ from hallm.cli.base import kubectl
 from hallm.cli.base.shell import check as _check
 from hallm.cli.base.shell import fail as _fail
 from hallm.cli.base.shell import run as _run
+from hallm.cli.base.shell import run_or_fail as _run_or_fail
 from hallm.core.settings import settings
 
 app = typer.Typer(help="k3d cluster operations.")
@@ -29,18 +30,59 @@ _CERT_MANAGER_URL = (
 _SIGNOZ_HELM_REPO = "https://charts.signoz.io"
 _SIGNOZ_NAMESPACE = "signoz"
 # Manifests that are applied/managed outside the generic k8s.apply loop.
-_SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset({"cerberus.yaml", "signoz-ingress.yaml"})
+# registries.yaml is a k3s registry config file, not a Kubernetes manifest.
+_SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
+    {"cerberus.yaml", "registries.yaml", "signoz-ingress.yaml"}
+)
 
 
 def _manifest(*parts: str) -> str:
     return (settings.K3D_PATH / "/".join(parts)).read_text()
 
 
+def _mount_storage() -> None:
+    """Ensure STORAGE_DEVICE is mounted at STORAGE_MOUNT_PATH.
+
+    If the device is currently mounted elsewhere (e.g. auto-mounted by the DE),
+    it is unmounted first. Requires sudo for umount/mount and mkdir under /mnt.
+    """
+    device = str(settings.STORAGE_DEVICE)
+    mount_path = settings.STORAGE_MOUNT_PATH
+
+    findmnt = subprocess.run(
+        ["findmnt", "--source", device, "--output", "TARGET", "--noheadings"],
+        text=True,
+        capture_output=True,
+    )
+    current_mount = findmnt.stdout.strip()
+
+    if current_mount == str(mount_path):
+        typer.echo(f"  {device} already mounted at {mount_path} — skipping.")
+        return
+
+    if current_mount:
+        typer.echo(f"  Unmounting {device} from {current_mount}...")
+        _run_or_fail(
+            ["sudo", "umount", current_mount], f"Failed to unmount {device} from {current_mount}"
+        )
+
+    typer.echo(f"  Creating mount point {mount_path}...")
+    _run_or_fail(["sudo", "mkdir", "-p", str(mount_path)], f"Failed to create {mount_path}")
+
+    typer.echo(f"  Mounting {device} at {mount_path}...")
+    _run_or_fail(
+        ["sudo", "mount", device, str(mount_path)], f"Failed to mount {device} at {mount_path}"
+    )
+
+
 @app.command()
 def setup() -> None:
     """Create the hallm k3d cluster, install the ROCm device plugin, and apply Cerberus PKI."""
-    typer.echo("==> Creating k3d cluster...")
-    result = _run(
+    typer.echo("==> Mounting SSD storage...")
+    _mount_storage()
+
+    typer.echo("\n==> Creating k3d cluster...")
+    _run_or_fail(
         [
             "k3d",
             "cluster",
@@ -50,16 +92,21 @@ def setup() -> None:
             "/dev/kfd:/dev/kfd@all",
             "--volume",
             "/dev/dri:/dev/dri@all",
+            "--volume",
+            f"{settings.STORAGE_MOUNT_PATH}:/var/lib/rancher/k3s/storage@all",
             "-p",
             "80:80@loadbalancer",
             "-p",
             "443:443@loadbalancer",
             "-p",
             "5432:5432@loadbalancer",
-        ]
+            "-p",
+            "5000:5000@loadbalancer",
+            "--registry-config",
+            str(settings.K3D_PATH / "registries.yaml"),
+        ],
+        "k3d cluster create failed",
     )
-    if result.returncode != 0:
-        _fail(f"k3d cluster create failed:\n{result.stderr}")
 
     typer.echo("\n==> Installing ROCm k8s device plugin...")
     kubectl.apply_url(_DEVICE_PLUGIN_URL)
@@ -93,16 +140,14 @@ def _install_signoz() -> None:
     if add_repo.returncode != 0 and "already exists" not in add_repo.stderr:
         _fail(f"helm repo add signoz failed:\n{add_repo.stderr}")
 
-    update = _run(["helm", "repo", "update"])
-    if update.returncode != 0:
-        _fail(f"helm repo update failed:\n{update.stderr}")
+    _run_or_fail(["helm", "repo", "update"], "helm repo update failed")
 
     _run(
         ["kubectl", "create", "namespace", _SIGNOZ_NAMESPACE]
     )  # idempotent: ignore "already exists"
 
     values_file = settings.K3D_PATH / "helm" / "signoz-values.yaml"
-    install = _run(
+    _run_or_fail(
         [
             "helm",
             "upgrade",
@@ -113,10 +158,9 @@ def _install_signoz() -> None:
             _SIGNOZ_NAMESPACE,
             "-f",
             str(values_file),
-        ]
+        ],
+        "helm install signoz failed",
     )
-    if install.returncode != 0:
-        _fail(f"helm install signoz failed:\n{install.stderr}")
 
     kubectl.apply(_manifest("signoz-ingress.yaml"), label="SigNoz Ingress")
 
@@ -132,16 +176,32 @@ def _apply_all_service_manifests() -> None:
 @app.command()
 def nuke(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+    volumes: bool = typer.Option(
+        False,
+        "--volumes",
+        help="Also wipe persistent volume data from the host storage mount.",
+    ),
 ) -> None:
-    """Delete the hallm k3d cluster and all its resources."""
+    """Delete the hallm k3d cluster and all its resources.
+
+    By default the host storage mount (PVC data) is preserved.
+    Pass --volumes to also delete it.
+    """
+    mount_path = settings.STORAGE_MOUNT_PATH
+    msg = f"This will permanently delete the '{_CLUSTER_NAME}' cluster"
+    if volumes:
+        msg += f" AND all data in {mount_path}"
+    msg += ". Continue?"
     if not yes:
-        typer.confirm(
-            f"This will permanently delete the '{_CLUSTER_NAME}' cluster. Continue?", abort=True
-        )
-    result = _run(["k3d", "cluster", "delete", _CLUSTER_NAME])
-    if result.returncode != 0:
-        _fail(f"k3d cluster delete failed:\n{result.stderr}")
+        typer.confirm(msg, abort=True)
+
+    _run_or_fail(["k3d", "cluster", "delete", _CLUSTER_NAME], "k3d cluster delete failed")
     typer.echo(f"\nCluster '{_CLUSTER_NAME}' deleted.")
+
+    if volumes:
+        typer.echo(f"\n==> Wiping persistent volume data at {mount_path}...")
+        _run_or_fail(["sudo", "rm", "-rf", str(mount_path)], f"Failed to wipe {mount_path}")
+        typer.echo("  Done.")
 
 
 @app.command()
@@ -347,7 +407,7 @@ def get_cert(
     ),
 ) -> None:
     """Fetch the Cerberus CA certificate from the cluster and save it to CWD."""
-    result = _run(
+    result = _run_or_fail(
         [
             "kubectl",
             "get",
@@ -357,10 +417,9 @@ def get_cert(
             "cert-manager",
             "-o",
             "jsonpath={.data.tls\\.crt}",
-        ]
+        ],
+        "Failed to retrieve cerberus-ca-secret",
     )
-    if result.returncode != 0:
-        _fail(f"Failed to retrieve cerberus-ca-secret:\n{result.stderr}")
 
     encoded = result.stdout.strip()
     if not encoded:

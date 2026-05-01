@@ -28,8 +28,8 @@ spec:
     spec:
       containers:
         - name: aw-server
-          image: hallm/activitywatch:latest
-          imagePullPolicy: Never
+          image: unregistry.hallm.local/hallm/activitywatch:latest
+          imagePullPolicy: IfNotPresent
           args:
             - --host
             - "0.0.0.0"

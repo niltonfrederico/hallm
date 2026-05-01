@@ -13,7 +13,13 @@ class Settings:
     ROOT_PATH: Path = Path(__file__).parent.parent.parent
     PROJECT_PATH: Path = ROOT_PATH / "hallm"
     CLI_PATH: Path = PROJECT_PATH / "cli"
-    K3D_PATH: Path = PROJECT_PATH / "k3d"
+    K3D_PATH: Path = ROOT_PATH / "k3d"
+
+    # Local SSD used as persistent storage backing for the k3d cluster.
+    # The device is mounted at STORAGE_MOUNT_PATH and bind-mounted into k3s nodes
+    # so the local-path provisioner stores all PV data on the SSD.
+    STORAGE_DEVICE: Path = Path("/dev/sda1")
+    STORAGE_MOUNT_PATH: Path = Path("/mnt/hallm")
 
     environment: str = env.str("ENVIRONMENT", "localhost")
     debug: bool = env.bool("DEBUG", False)

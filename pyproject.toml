@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-hallm = "hallm.cli.main:app"
+hallm = "hallm.cli.main:main"
 
 [build-system]
 requires = ["hatchling"]

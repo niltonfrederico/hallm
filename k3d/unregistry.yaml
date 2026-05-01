@@ -1,0 +1,47 @@
+# Unregistry DaemonSet — runs a temporary OCI registry on every k3d node,
+# backed directly by k3s's containerd image store.
+#
+# Images pushed to localhost:5000 are stored in k3s containerd and immediately
+# available to pods. Combined with k3d/registries.yaml, pulling hallm/* images
+# resolves through this registry without any external registry.
+#
+# Usage:
+#   docker build -t hallm/<image>:latest -f docker/Dockerfile.<image> .
+#   docker push localhost:5000/hallm/<image>:latest
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: unregistry
+  namespace: kube-system
+  labels:
+    app: unregistry
+spec:
+  selector:
+    matchLabels:
+      app: unregistry
+  template:
+    metadata:
+      labels:
+        app: unregistry
+    spec:
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: unregistry
+          image: ghcr.io/psviderski/unregistry:latest
+          ports:
+            - containerPort: 5000
+              hostPort: 5000
+              protocol: TCP
+          volumeMounts:
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
+          securityContext:
+            runAsUser: 0
+      volumes:
+        - name: containerd-sock
+          hostPath:
+            path: /run/k3s/containerd/containerd.sock
+            type: Socket

@@ -18,7 +18,7 @@ otelCollector:
   service:
     type: ClusterIP
   ports:
-    otlp-grpc:
+    otlp:
       enabled: true
       containerPort: 4317
       servicePort: 4317

@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends git libatomic1 && rm -rf /var/lib/apt/lists/* \
     && git config --global --add safe.directory /app
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
@@ -22,3 +22,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync
 
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Pre-warm pre-commit hook environments so they're baked into the image layer.
+# A throwaway git repo is needed for pre-commit to run; it's removed afterwards.
+# At runtime the real .pre-commit-config.yaml is volume-mounted, but the hook
+# environments are keyed by repo URL + rev so the cache is reused as long as
+# the config hasn't changed.
+COPY .pre-commit-config.yaml ./
+RUN git init && \
+    pre-commit install-hooks && \
+    rm -rf .git

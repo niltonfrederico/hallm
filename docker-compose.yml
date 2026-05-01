@@ -72,10 +72,12 @@ services:
     profiles: [ "lint" ]
     volumes:
       - ./.git:/app/.git
+      - ./.markdownlint.json:/app/.markdownlint.json
       - ./.pre-commit-config.yaml:/app/.pre-commit-config.yaml
       - ./pyproject.toml:/app/pyproject.toml
       - ./hallm:/app/hallm
       - ./tests:/app/tests
+      - ./README.md:/app/README.md
 
 volumes:
   postgres_data:

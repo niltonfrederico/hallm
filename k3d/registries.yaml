@@ -1,0 +1,13 @@
+# k3s registry mirror configuration.
+# Tells k3s to resolve any image with the "hallm" prefix via the local
+# unregistry instance instead of Docker Hub.
+#
+# Workflow:
+#   docker build -t hallm/<image>:latest ...
+#   docker push localhost:5000/hallm/<image>:latest
+#   -> stored in k3s containerd via unregistry DaemonSet
+#   -> k3s resolves hallm/<image>:latest through the mirror below
+mirrors:
+  "unregistry.hallm.local":
+    endpoint:
+      - "http://unregistry.hallm.local"

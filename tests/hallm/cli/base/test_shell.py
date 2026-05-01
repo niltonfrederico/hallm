@@ -9,6 +9,7 @@ import typer
 from hallm.cli.base.shell import check
 from hallm.cli.base.shell import fail
 from hallm.cli.base.shell import run
+from hallm.cli.base.shell import run_or_fail
 
 
 def _cp(
@@ -109,3 +110,30 @@ class TestCheck:
     def test_fail_does_not_print_ok(self, capsys: pytest.CaptureFixture[str]) -> None:
         check("some check", False)
         assert "[OK]" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# run_or_fail
+# ---------------------------------------------------------------------------
+
+
+class TestRunOrFail:
+    def test_success_returns_process(self) -> None:
+        cp = _cp(returncode=0, stdout="ok")
+        with patch("subprocess.run", return_value=cp):
+            result = run_or_fail(["echo", "ok"], "should not fail")
+        assert result is cp
+
+    def test_failure_raises_exit(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="boom")):
+            with pytest.raises(typer.Exit) as exc_info:
+                run_or_fail(["false"], "command failed")
+        assert exc_info.value.exit_code == 1
+
+    def test_failure_embeds_stderr_in_message(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="detail here")):
+            with pytest.raises(typer.Exit):
+                run_or_fail(["false"], "the error message")
+        err = capsys.readouterr().err
+        assert "the error message" in err
+        assert "detail here" in err
