@@ -78,6 +78,9 @@ def _mount_storage() -> None:
 @app.command()
 def setup() -> None:
     """Create the hallm k3d cluster, install the ROCm device plugin, and apply Cerberus PKI."""
+    settings.SECRETS_PATH.mkdir(parents=True, exist_ok=True)
+    typer.echo(f"==> Secrets directory: {settings.SECRETS_PATH}")
+
     typer.echo("==> Mounting SSD storage...")
     _mount_storage()
 

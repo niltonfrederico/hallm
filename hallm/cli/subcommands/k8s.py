@@ -2,6 +2,7 @@
 
 import subprocess
 import time
+from pathlib import Path
 
 import typer
 
@@ -31,27 +32,43 @@ _HEIMDALL_APPS: tuple[tuple[str, str, str], ...] = (
 
 @app.command("sync-secrets")
 def sync_secrets() -> None:
-    """Sync .env → Secret 'hallm-env' in the cluster."""
-    env_path = settings.ROOT_PATH / ".env"
+    """Sync ~/.hallm/*.env files → Kubernetes Secrets.
 
-    if not env_path.exists():
-        _fail(f".env not found at {env_path}")
+    Each <secret-name>.env file in ~/.hallm/ is applied as a Secret named
+    <secret-name>.  A file named exactly .env is applied as 'hallm-env'.
+    """
+    secrets_dir = settings.SECRETS_PATH
+    secrets_dir.mkdir(parents=True, exist_ok=True)
 
-    typer.echo("==> Syncing .env → Secret 'hallm-env'...")
-    kubectl.apply_from_cmd(
-        "Secret 'hallm-env'",
-        [
-            "kubectl",
-            "create",
-            "secret",
-            "generic",
-            "hallm-env",
-            f"--from-env-file={env_path}",
-            "--dry-run=client",
-            "-o",
-            "yaml",
-        ],
-    )
+    sources: list[tuple[str, Path]] = [
+        (env_file.stem, env_file)
+        for env_file in sorted(secrets_dir.glob("*.env"))
+        if env_file.name != ".env"
+    ]
+    hallm_env = secrets_dir / ".env"
+    if hallm_env.exists():
+        sources.append(("hallm-env", hallm_env))
+
+    if not sources:
+        typer.echo(f"No .env files found in {secrets_dir}. Add <secret-name>.env files to sync.")
+        return
+
+    for secret_name, env_file in sources:
+        typer.echo(f"==> Syncing {env_file.name} → Secret '{secret_name}'...")
+        kubectl.apply_from_cmd(
+            f"Secret '{secret_name}'",
+            [
+                "kubectl",
+                "create",
+                "secret",
+                "generic",
+                secret_name,
+                f"--from-env-file={env_file}",
+                "--dry-run=client",
+                "-o",
+                "yaml",
+            ],
+        )
 
     typer.echo("\nDone.")
 

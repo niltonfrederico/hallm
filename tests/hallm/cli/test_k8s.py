@@ -33,12 +33,12 @@ def k3d_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture()
-def env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Creates a .env file in tmp_path and patches ROOT_PATH."""
-    env = tmp_path / ".env"
-    env.write_text("FOO=bar\nBAZ=qux\n")
-    monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
-    return env
+def secrets_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Creates ~/.hallm-equivalent dir in tmp_path and patches SECRETS_PATH."""
+    sd = tmp_path / ".hallm"
+    sd.mkdir()
+    monkeypatch.setattr(settings, "SECRETS_PATH", sd)
+    return sd
 
 
 # ---------------------------------------------------------------------------
@@ -47,21 +47,30 @@ def env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 class TestSyncSecrets:
-    def test_missing_env_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+    def test_no_env_files(self, secrets_dir: Path):
         result = runner.invoke(app, ["sync-secrets"])
 
-        assert result.exit_code == 1
-        assert ".env not found" in result.output
+        assert result.exit_code == 0
+        assert "No .env files found" in result.output
 
-    def test_kubectl_create_secret_fails(self, env_file: Path):
+    def test_creates_secrets_dir_if_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        missing = tmp_path / "new-hallm"
+        monkeypatch.setattr(settings, "SECRETS_PATH", missing)
+        result = runner.invoke(app, ["sync-secrets"])
+
+        assert missing.exists()
+        assert result.exit_code == 0
+
+    def test_named_secret_kubectl_create_fails(self, secrets_dir: Path):
+        (secrets_dir / "myapp.env").write_text("KEY=val\n")
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="auth error")):
             result = runner.invoke(app, ["sync-secrets"])
 
         assert result.exit_code == 1
         assert "Failed to build" in result.output
 
-    def test_kubectl_apply_fails(self, env_file: Path):
+    def test_named_secret_kubectl_apply_fails(self, secrets_dir: Path):
+        (secrets_dir / "myapp.env").write_text("KEY=val\n")
         with patch(
             "subprocess.run",
             side_effect=[
@@ -74,18 +83,50 @@ class TestSyncSecrets:
         assert result.exit_code == 1
         assert "kubectl apply" in result.output
 
-    def test_success(self, env_file: Path):
+    def test_named_secret_success(self, secrets_dir: Path):
+        (secrets_dir / "myapp.env").write_text("KEY=val\n")
         with patch(
             "subprocess.run",
             side_effect=[
-                _cp(stdout="yaml: content"),  # kubectl create secret --dry-run
-                _cp(),  # kubectl apply -f -
+                _cp(stdout="yaml: content"),
+                _cp(),
             ],
         ):
             result = runner.invoke(app, ["sync-secrets"])
 
         assert result.exit_code == 0
+        assert "myapp.env → Secret 'myapp'" in result.output
         assert "Done" in result.output
+
+    def test_dotenv_maps_to_hallm_env(self, secrets_dir: Path):
+        (secrets_dir / ".env").write_text("FOO=bar\n")
+        with patch(
+            "subprocess.run",
+            side_effect=[
+                _cp(stdout="yaml: content"),
+                _cp(),
+            ],
+        ):
+            result = runner.invoke(app, ["sync-secrets"])
+
+        assert result.exit_code == 0
+        assert ".env → Secret 'hallm-env'" in result.output
+
+    def test_multiple_secrets_synced(self, secrets_dir: Path):
+        (secrets_dir / "alpha.env").write_text("A=1\n")
+        (secrets_dir / "beta.env").write_text("B=2\n")
+        (secrets_dir / ".env").write_text("C=3\n")
+        # 2 pairs of (create --dry-run, apply) calls = 6 subprocess calls
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout="y"), _cp()] * 3,
+        ):
+            result = runner.invoke(app, ["sync-secrets"])
+
+        assert result.exit_code == 0
+        assert "alpha.env → Secret 'alpha'" in result.output
+        assert "beta.env → Secret 'beta'" in result.output
+        assert ".env → Secret 'hallm-env'" in result.output
 
 
 # ---------------------------------------------------------------------------

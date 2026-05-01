@@ -14,6 +14,7 @@ class Settings:
     PROJECT_PATH: Path = ROOT_PATH / "hallm"
     CLI_PATH: Path = PROJECT_PATH / "cli"
     K3D_PATH: Path = ROOT_PATH / "k3d"
+    SECRETS_PATH: Path = Path.home() / ".hallm"
 
     # Local SSD used as persistent storage backing for the k3d cluster.
     # The device is mounted at STORAGE_MOUNT_PATH and bind-mounted into k3s nodes
