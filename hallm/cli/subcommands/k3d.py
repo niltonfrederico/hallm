@@ -1,11 +1,13 @@
 """k3d cluster management commands for the hallm local dev environment."""
 
+import base64
 import json
 import socket
 import subprocess
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import typer
 
@@ -333,3 +335,38 @@ def _cleanup_dns_smoke() -> None:
         ],
         capture_output=True,
     )
+
+
+@app.command("get-cert")
+def get_cert(
+    output: str = typer.Option(
+        "cerberus-ca.pem",
+        "--output",
+        "-o",
+        help="Filename to write the certificate to (relative to CWD).",
+    ),
+) -> None:
+    """Fetch the Cerberus CA certificate from the cluster and save it to CWD."""
+    result = _run(
+        [
+            "kubectl",
+            "get",
+            "secret",
+            "cerberus-ca-secret",
+            "-n",
+            "cert-manager",
+            "-o",
+            "jsonpath={.data.tls\\.crt}",
+        ]
+    )
+    if result.returncode != 0:
+        _fail(f"Failed to retrieve cerberus-ca-secret:\n{result.stderr}")
+
+    encoded = result.stdout.strip()
+    if not encoded:
+        _fail("cerberus-ca-secret/tls.crt is empty — has the Cerberus PKI been applied?")
+
+    cert_pem = base64.b64decode(encoded).decode()
+    dest = Path.cwd() / output
+    dest.write_text(cert_pem)
+    typer.echo(f"Certificate written to {dest}")
