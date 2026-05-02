@@ -2,7 +2,7 @@
 
 import sentry_sdk
 from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.sdk.resources import Resource
@@ -31,9 +31,11 @@ def init_observability() -> None:
     if settings.otel_endpoint:
         resource = Resource.create({"service.name": settings.otel_service_name})
         provider = TracerProvider(resource=resource)
-        provider.add_span_processor(
-            BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.otel_endpoint, insecure=True))
-        )
+        exporter_kwargs: dict[str, str] = {"endpoint": settings.otel_endpoint}
+        ca_cert = settings.SECRETS_PATH / "cerberus-ca.pem"
+        if settings.otel_endpoint.startswith("https://") and ca_cert.exists():
+            exporter_kwargs["certificate_file"] = str(ca_cert)
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(**exporter_kwargs)))
         trace.set_tracer_provider(provider)
         AsyncPGInstrumentor().instrument()
         HTTPXClientInstrumentor().instrument()

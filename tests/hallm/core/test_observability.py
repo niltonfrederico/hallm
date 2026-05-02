@@ -1,6 +1,7 @@
 """Unit tests for hallm.core.observability."""
 
 import importlib
+from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -40,6 +41,41 @@ def test_init_observability_sets_up_otel_when_endpoint_set() -> None:
         observability.init_observability()
         asyncpg_inst.return_value.instrument.assert_called_once()
         httpx_inst.return_value.instrument.assert_called_once()
+
+
+def test_init_observability_https_endpoint_with_cert(tmp_path: Path) -> None:
+    ca_cert = tmp_path / "cerberus-ca.pem"
+    ca_cert.write_text("CERT")
+    with (
+        patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "otel_endpoint", "https://otel.hallm.local"),
+        patch.object(settings, "SECRETS_PATH", tmp_path),
+        patch("hallm.core.observability.OTLPSpanExporter") as mock_exporter,
+        patch("hallm.core.observability.TracerProvider", return_value=MagicMock()),
+        patch("hallm.core.observability.trace.set_tracer_provider"),
+        patch("hallm.core.observability.AsyncPGInstrumentor"),
+        patch("hallm.core.observability.HTTPXClientInstrumentor"),
+    ):
+        observability.init_observability()
+        mock_exporter.assert_called_once_with(
+            endpoint="https://otel.hallm.local",
+            certificate_file=str(ca_cert),
+        )
+
+
+def test_init_observability_https_endpoint_without_cert(tmp_path: Path) -> None:
+    with (
+        patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "otel_endpoint", "https://otel.hallm.local"),
+        patch.object(settings, "SECRETS_PATH", tmp_path),
+        patch("hallm.core.observability.OTLPSpanExporter") as mock_exporter,
+        patch("hallm.core.observability.TracerProvider", return_value=MagicMock()),
+        patch("hallm.core.observability.trace.set_tracer_provider"),
+        patch("hallm.core.observability.AsyncPGInstrumentor"),
+        patch("hallm.core.observability.HTTPXClientInstrumentor"),
+    ):
+        observability.init_observability()
+        mock_exporter.assert_called_once_with(endpoint="https://otel.hallm.local")
 
 
 def test_init_observability_no_dsn_no_endpoint() -> None:
