@@ -1,5 +1,6 @@
-"""Unit tests for the secrets CLI subcommand (apply + prepare)."""
+"""Unit tests for the secrets CLI subcommand (apply, prepare, get-certificate)."""
 
+import base64
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -213,3 +214,67 @@ class TestPrepare:
 
         out = (secrets_dir / ".env").read_text()
         assert "signoz-otel-collector.signoz.svc.cluster.local:4317" in out
+
+
+# ---------------------------------------------------------------------------
+# get-certificate
+# ---------------------------------------------------------------------------
+
+_CERT_B64 = base64.b64encode(
+    b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+).decode()
+_KEY_B64 = base64.b64encode(
+    b"-----BEGIN EC PRIVATE KEY-----\nfake\n-----END EC PRIVATE KEY-----\n"
+).decode()
+
+_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.secrets._configure_docker_registry_cert")
+
+
+class TestGetCertificate:
+    def test_success(self, tmp_path: Path) -> None:
+        sd = tmp_path / ".hallm"
+        sd.mkdir()
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[_cp(stdout=_CERT_B64), _cp(stdout=_KEY_B64)],
+            ),
+            patch.object(settings, "SECRETS_PATH", sd),
+            _PATCH_DOCKER_CERT as mock_cert,
+        ):
+            result = runner.invoke(app, ["get-certificate"])
+
+        assert result.exit_code == 0
+        assert "Cert →" in result.output
+        assert "Key  →" in result.output
+        assert "BEGIN CERTIFICATE" in (sd / "cerberus-ca.pem").read_text()
+        assert "BEGIN EC PRIVATE KEY" in (sd / "cerberus-ca.key").read_text()
+        mock_cert.assert_called_once_with(sd / "cerberus-ca.pem")
+
+    def test_kubectl_fails(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):
+            result = runner.invoke(app, ["get-certificate"])
+        assert result.exit_code == 1
+        assert "cerberus-ca-secret" in result.output
+
+    def test_empty_cert(self, tmp_path: Path) -> None:
+        sd = tmp_path / ".hallm"
+        sd.mkdir()
+        with (
+            patch("subprocess.run", return_value=_cp(returncode=0, stdout="")),
+            patch.object(settings, "SECRETS_PATH", sd),
+        ):
+            result = runner.invoke(app, ["get-certificate"])
+        assert result.exit_code == 1
+        assert "empty" in result.output
+
+    def test_empty_key(self, tmp_path: Path) -> None:
+        sd = tmp_path / ".hallm"
+        sd.mkdir()
+        with (
+            patch("subprocess.run", side_effect=[_cp(stdout=_CERT_B64), _cp(stdout="")]),
+            patch.object(settings, "SECRETS_PATH", sd),
+        ):
+            result = runner.invoke(app, ["get-certificate"])
+        assert result.exit_code == 1
+        assert "empty" in result.output

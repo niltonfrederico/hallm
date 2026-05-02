@@ -1,16 +1,10 @@
-"""Kubernetes operations for the hallm local dev environment.
+"""Cluster lifecycle commands for the hallm local dev environment.
 
-The commands fall into two groups:
-
-* **Cluster lifecycle** — ``preflight``, ``setup``, ``healthcheck``, ``nuke``,
-  ``get-cert``: provision, verify, and tear down the local k3d cluster, and
-  manage the Cerberus PKI cert/key on the host.
-* **Cluster operations** — ``remove``, ``seed-heimdall``:
-  routine ops against an already-running cluster.
+Covers the full lifecycle of the k3d cluster:
+``preflight``, ``diagnose``, ``mount``, ``setup``, ``nuke``, ``healthcheck``.
 """
 
 import asyncio
-import base64
 import json
 import os
 import socket
@@ -33,7 +27,7 @@ from hallm.cli.subcommands import db as _db
 from hallm.cli.subcommands import secrets as _secrets
 from hallm.core.settings import settings
 
-app = typer.Typer(help="Kubernetes operations.", no_args_is_help=True)
+app = typer.Typer(help="Cluster lifecycle operations.", no_args_is_help=True)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -53,40 +47,17 @@ _SIGNOZ_NAMESPACE = "signoz"
 # Manifests applied/managed outside the generic apply loop.
 # registries.yaml is a k3s registry config file, not a Kubernetes manifest.
 _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
-    {"cerberus.yaml", "postgres.yaml", "registries.yaml", "signoz-ingress.yaml"}
+    {
+        "cerberus.yaml",
+        "postgres.yaml",
+        "registries.yaml",
+        "signoz-ingress.yaml",
+    }
 )
-
-# Applied when restoring Cerberus CA from an existing cert+key in ~/.hallm/.
-_CERBERUS_CA_ISSUER = """\
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: cerberus-ca
-  labels:
-    app: cerberus
-spec:
-  ca:
-    secretName: cerberus-ca-secret
-"""
 
 _GPU_DEVICES: tuple[Path, ...] = (Path("/dev/kfd"), Path("/dev/dri/renderD128"))
 _CGROUP_DELEGATE_FILE = Path("/etc/systemd/system/user@.service.d/delegate.conf")
 _REQUIRED_CGROUP_CONTROLLERS: frozenset[str] = frozenset({"cpu", "cpuset", "io"})
-
-# Apps registered in Heimdall after the cluster is up.
-# Each tuple is (title, url, colour). Heimdall fills in default icons.
-_HEIMDALL_APPS: tuple[tuple[str, str, str], ...] = (
-    ("Glitchtip", "https://glitchtip.hallm.local", "#ff5722"),
-    ("SigNoz", "https://signoz.hallm.local", "#e75480"),
-    ("Habitica", "https://habitica.hallm.local", "#6f4cba"),
-    ("OpenClaw", "https://openclaw.hallm.local", "#0d6efd"),
-    ("Gotify", "https://gotify.hallm.local", "#34a853"),
-    ("Paperless", "https://paperless.hallm.local", "#1f9d55"),
-    ("OTS", "https://ots.hallm.local", "#dc3545"),
-    ("ActivityWatch", "https://aw.hallm.local", "#fd7e14"),
-    ("Spotify", "https://spotify.hallm.local", "#1db954"),
-    ("RustFS", "https://rustfs.hallm.local", "#b7410e"),
-)
 
 
 # ---------------------------------------------------------------------------
@@ -127,69 +98,6 @@ def _mount_storage() -> None:
     _run_or_fail(
         ["sudo", "mount", device, str(mount_path)], f"Failed to mount {device} at {mount_path}"
     )
-
-
-def _restore_cerberus_from_files(pem_path: Path, key_path: Path) -> None:
-    """Import existing cert+key as cerberus-ca-secret, then apply the CA ClusterIssuer."""
-    kubectl.apply_from_cmd(
-        "Secret 'cerberus-ca-secret'",
-        [
-            "kubectl",
-            "create",
-            "secret",
-            "tls",
-            "cerberus-ca-secret",
-            "-n",
-            "cert-manager",
-            f"--cert={pem_path}",
-            f"--key={key_path}",
-            "--dry-run=client",
-            "-o",
-            "yaml",
-        ],
-    )
-    kubectl.apply(_CERBERUS_CA_ISSUER, label="Cerberus CA ClusterIssuer")
-
-
-def _read_cerberus_secret_data(field: str) -> str:
-    """Return the raw base64 value of cerberus-ca-secret/<field>."""
-    result = _run_or_fail(
-        [
-            "kubectl",
-            "get",
-            "secret",
-            "cerberus-ca-secret",
-            "-n",
-            "cert-manager",
-            "-o",
-            rf"jsonpath={{.data.{field.replace('.', r'\.')}}}",
-        ],
-        f"Failed to retrieve cerberus-ca-secret/{field}",
-    )
-    return result.stdout.strip()
-
-
-def _export_cerberus_ca(pem_path: Path, key_path: Path) -> None:
-    """Wait for the Cerberus CA Certificate to be issued, then save cert+key to ~/.hallm/."""
-    kubectl.wait(
-        "certificate/cerberus-ca",
-        "Ready",
-        namespace="cert-manager",
-        timeout="60s",
-    )
-    pem_path.write_text(base64.b64decode(_read_cerberus_secret_data("tls.crt")).decode())
-    key_path.write_text(base64.b64decode(_read_cerberus_secret_data("tls.key")).decode())
-    typer.echo(f"  Cert → {pem_path}")
-    typer.echo(f"  Key  → {key_path}")
-
-
-def _configure_docker_registry_cert(pem_path: Path) -> None:
-    """Copy the Cerberus CA cert into Docker's certs.d so the rootless daemon trusts the registry."""
-    certs_dir = Path.home() / ".config" / "docker" / "certs.d" / _UNREGISTRY_HOST
-    certs_dir.mkdir(parents=True, exist_ok=True)
-    ca_crt = certs_dir / "ca.crt"
-    ca_crt.write_text(pem_path.read_text())
-    typer.echo(f"  Docker registry cert → {ca_crt}")
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +320,19 @@ def diagnose(
 
 
 # ---------------------------------------------------------------------------
+# Mount
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def mount() -> None:
+    """Mount the SSD storage device at the configured mount path."""
+    typer.echo("==> Mounting SSD storage...")
+    _mount_storage()
+    typer.echo("Done.")
+
+
+# ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
 
@@ -552,15 +473,15 @@ def setup(
 
         if pem_path.exists() and key_path.exists():
             typer.echo(f"\n==> Restoring Cerberus CA from {settings.SECRETS_PATH}...")
-            _restore_cerberus_from_files(pem_path, key_path)
+            _secrets._restore_cerberus_from_files(pem_path, key_path)
         else:
             typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
             kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
             typer.echo("\n==> Exporting Cerberus CA to ~/.hallm/...")
-            _export_cerberus_ca(pem_path, key_path)
+            _secrets._export_cerberus_ca(pem_path, key_path)
 
         typer.echo("\n==> Trusting Cerberus CA for Docker registry...")
-        _configure_docker_registry_cert(pem_path)
+        _secrets._configure_docker_registry_cert(pem_path)
 
         typer.echo("\n==> Syncing secrets to cluster...")
         _secrets._sync_secrets()
@@ -584,14 +505,6 @@ def setup(
 # ---------------------------------------------------------------------------
 # Nuke
 # ---------------------------------------------------------------------------
-
-
-@app.command()
-def mount() -> None:
-    """Mount the SSD storage device at the configured mount path."""
-    typer.echo("==> Mounting SSD storage...")
-    _mount_storage()
-    typer.echo("Done.")
 
 
 @app.command()
@@ -731,6 +644,10 @@ def _pod_phase(pod: str) -> str:
     ).stdout.strip()
 
 
+class _SmokeAborted(Exception):
+    """Internal sentinel: the smoke pod entered a terminal failure state."""
+
+
 def _gpu_smoke_test() -> bool:
     """Deploy a GPU-requesting pod, wait for Succeeded, clean up. Return True on pass."""
     apply = subprocess.run(
@@ -830,195 +747,3 @@ def _cleanup_dns_smoke() -> None:
         ],
         capture_output=True,
     )
-
-
-class _SmokeAborted(Exception):
-    """Internal sentinel: the smoke pod entered a terminal failure state."""
-
-
-# ---------------------------------------------------------------------------
-# get-cert
-# ---------------------------------------------------------------------------
-
-
-@app.command("get-cert")
-def get_cert() -> None:
-    """Fetch the Cerberus CA cert and key from the cluster and save them to ~/.hallm/.
-
-    Writes cerberus-ca.pem and cerberus-ca.key so that subsequent cluster setups
-    can reuse the same CA instead of generating a new self-signed one.
-    """
-    pem_path = settings.SECRETS_PATH / "cerberus-ca.pem"
-    key_path = settings.SECRETS_PATH / "cerberus-ca.key"
-    settings.SECRETS_PATH.mkdir(parents=True, exist_ok=True)
-
-    encoded_cert = _read_cerberus_secret_data("tls.crt")
-    if not encoded_cert:
-        _fail("cerberus-ca-secret/tls.crt is empty — has the Cerberus PKI been applied?")
-
-    encoded_key = _read_cerberus_secret_data("tls.key")
-    if not encoded_key:
-        _fail("cerberus-ca-secret/tls.key is empty — has the Cerberus PKI been applied?")
-
-    pem_path.write_text(base64.b64decode(encoded_cert).decode())
-    key_path.write_text(base64.b64decode(encoded_key).decode())
-    typer.echo(f"Cert → {pem_path}")
-    typer.echo(f"Key  → {key_path}")
-    _configure_docker_registry_cert(pem_path)
-
-
-# ---------------------------------------------------------------------------
-# Cluster operations
-# ---------------------------------------------------------------------------
-
-
-@app.command()
-def remove(
-    name: str = typer.Argument(
-        ..., help="Manifest name in k8s/ (without .yaml), e.g. 'ollama', 'postgres'"
-    ),
-    namespace: str = typer.Option(
-        _DEFAULT_NAMESPACE, "--namespace", "-n", help="Kubernetes namespace"
-    ),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
-) -> None:
-    """Remove a deployment and all associated resources (volumes, secrets, configmaps, ingresses).
-
-    Deletes everything defined in k8s/<name>.yaml, then sweeps for any PVCs, Secrets,
-    and ConfigMaps labelled app=<name> in the target namespace.
-    """
-    manifest = settings.K8S_PATH / f"{name}.yaml"
-    if not manifest.exists():
-        _fail(
-            f"No manifest found at {manifest}. "
-            f"Available manifests: {', '.join(p.stem for p in settings.K8S_PATH.glob('*.yaml'))}"
-        )
-
-    sweep_kinds = ["persistentvolumeclaims", "secrets", "configmaps", "ingresses"]
-
-    typer.echo(f"==> Resources to remove (from {manifest.relative_to(settings.ROOT_PATH)}):")
-    preview = subprocess.run(
-        ["kubectl", "get", "-f", str(manifest), "-n", namespace, "--ignore-not-found"],
-        text=True,
-        capture_output=True,
-    )
-    if preview.stdout.strip():
-        for line in preview.stdout.strip().splitlines():
-            typer.echo(f"  {line}")
-    else:
-        typer.echo("  (no manifest resources currently exist in the cluster)")
-
-    label_resources: list[str] = []
-    for kind in sweep_kinds:
-        result = subprocess.run(
-            [
-                "kubectl",
-                "get",
-                kind,
-                "-n",
-                namespace,
-                "-l",
-                f"app={name}",
-                "--ignore-not-found",
-                "-o",
-                "name",
-            ],
-            text=True,
-            capture_output=True,
-        )
-        for line in result.stdout.strip().splitlines():
-            if line:
-                label_resources.append(line)
-
-    if label_resources:
-        typer.echo(f"\n==> Additional resources labelled app={name}:")
-        for r in label_resources:
-            typer.echo(f"  {r}")
-
-    if not yes:
-        typer.confirm(f"\nDelete all of the above in namespace '{namespace}'?", abort=True)
-
-    typer.echo(f"\n==> Deleting manifest resources from {manifest.name}...")
-    kubectl.delete_manifest(manifest, namespace=namespace)
-
-    if label_resources:
-        typer.echo(f"==> Sweeping labelled resources (app={name})...")
-        for kind in sweep_kinds:
-            kubectl.delete_by_label(kind, f"app={name}", namespace=namespace)
-
-    typer.echo(f"\nDone. '{name}' and associated resources removed.")
-
-
-@app.command("seed-heimdall")
-def seed_heimdall(
-    namespace: str = typer.Option(_DEFAULT_NAMESPACE, "--namespace", "-n"),
-    timeout: int = typer.Option(120, "--timeout", help="Seconds to wait for Heimdall DB"),
-) -> None:
-    """Populate Heimdall with hallm-managed apps via sqlite3 INSERT OR IGNORE."""
-    typer.echo("==> Locating Heimdall pod...")
-    pod_name = _heimdall_pod(namespace)
-    if not pod_name:
-        _fail("No Heimdall pod found. Apply k8s/heimdall.yaml first.")
-
-    typer.echo(f"==> Waiting up to {timeout}s for Heimdall items table...")
-    if not _wait_for_heimdall_db(pod_name, namespace, timeout):
-        _fail("Heimdall items table did not appear within timeout.")
-
-    typer.echo("==> Seeding apps...")
-    sql_lines = [
-        f"INSERT OR IGNORE INTO items (title, url, colour, type, pinned, "
-        f'"order", created_at, updated_at) VALUES '
-        f"('{title}', '{url}', '{colour}', 0, 1, {idx}, datetime('now'), datetime('now'));"
-        for idx, (title, url, colour) in enumerate(_HEIMDALL_APPS)
-    ]
-    script = (
-        "sqlite3 /config/www/SimpleSettings/database.sqlite <<'SQL'\n"
-        + "\n".join(sql_lines)
-        + "\nSQL\n"
-    )
-
-    result = subprocess.run(
-        ["kubectl", "exec", "-n", namespace, "-i", pod_name, "--", "sh", "-c", script],
-        text=True,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        _fail(f"sqlite3 seed failed:\n{result.stderr}")
-
-    typer.echo(f"\nSeeded {len(_HEIMDALL_APPS)} apps. Visit https://heimdall.hallm.local")
-
-
-def _heimdall_pod(namespace: str) -> str | None:
-    result = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "pod",
-            "-n",
-            namespace,
-            "-l",
-            "app=heimdall",
-            "-o",
-            "jsonpath={.items[0].metadata.name}",
-        ],
-        text=True,
-        capture_output=True,
-    )
-    return result.stdout.strip() or None
-
-
-def _wait_for_heimdall_db(pod_name: str, namespace: str, timeout: int) -> bool:
-    probe = (
-        "sqlite3 /config/www/SimpleSettings/database.sqlite "
-        '\'SELECT name FROM sqlite_master WHERE type="table" AND name="items";\''
-    )
-
-    def _has_items_table() -> bool:
-        result = subprocess.run(
-            ["kubectl", "exec", "-n", namespace, pod_name, "--", "sh", "-c", probe],
-            text=True,
-            capture_output=True,
-        )
-        return result.returncode == 0 and "items" in result.stdout
-
-    return poll_until(_has_items_table, timeout=timeout, interval=3.0)

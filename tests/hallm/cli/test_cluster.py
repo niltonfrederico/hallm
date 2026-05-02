@@ -1,4 +1,4 @@
-"""Unit tests for the merged k8s CLI subcommand (cluster lifecycle + ops)."""
+"""Unit tests for hallm.cli.subcommands.cluster."""
 
 import base64
 import json
@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from hallm.cli.subcommands.k8s import app
+from hallm.cli.subcommands.cluster import app
 from hallm.core.settings import settings
 
 runner = CliRunner()
@@ -92,10 +92,10 @@ def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
 # setup
 # ---------------------------------------------------------------------------
 
-_PATCH_MOUNT = patch("hallm.cli.subcommands.k8s._mount_storage")
-_PATCH_PREFLIGHT = patch("hallm.cli.subcommands.k8s._run_preflight")
-_PATCH_SETUP_POSTGRES = patch("hallm.cli.subcommands.k8s._setup_postgres")
-_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.k8s._configure_docker_registry_cert")
+_PATCH_MOUNT = patch("hallm.cli.subcommands.cluster._mount_storage")
+_PATCH_PREFLIGHT = patch("hallm.cli.subcommands.cluster._run_preflight")
+_PATCH_SETUP_POSTGRES = patch("hallm.cli.subcommands.cluster._setup_postgres")
+_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.secrets._configure_docker_registry_cert")
 
 
 class TestSetup:
@@ -106,9 +106,9 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp(stdout=_CERT_B64)) as mock,
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
-            patch("hallm.cli.subcommands.k8s._install_signoz"),
-            patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
+            patch("hallm.cli.subcommands.cluster._install_signoz"),
+            patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
             _PATCH_DOCKER_CERT as mock_cert,
@@ -142,7 +142,7 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp()),
-            patch("hallm.cli.subcommands.k8s.poll_until", return_value=False),
+            patch("hallm.cli.subcommands.cluster.poll_until", return_value=False),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -205,7 +205,7 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp()) as mock,
-            patch("hallm.cli.subcommands.k8s.poll_until", return_value=False),
+            patch("hallm.cli.subcommands.cluster.poll_until", return_value=False),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -225,7 +225,7 @@ class TestSetup:
                 "subprocess.run",
                 side_effect=[_cp()] * 5 + [_cp(returncode=1, stderr="cerb"), _cp()],
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -243,9 +243,9 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp(stdout=_CERT_B64)),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
-            patch("hallm.cli.subcommands.k8s._install_signoz"),
-            patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
+            patch("hallm.cli.subcommands.cluster._install_signoz"),
+            patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
             _PATCH_DOCKER_CERT,
@@ -265,8 +265,8 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp()) as mock,
-            patch("hallm.cli.subcommands.k8s._install_signoz"),
-            patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            patch("hallm.cli.subcommands.cluster._install_signoz"),
+            patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
             _PATCH_DOCKER_CERT as mock_cert,
@@ -295,7 +295,7 @@ class TestSetupPostgres:
                 new_callable=AsyncMock,
             ),
         ):
-            from hallm.cli.subcommands.k8s import _setup_postgres
+            from hallm.cli.subcommands.cluster import _setup_postgres
 
             _setup_postgres()
 
@@ -371,12 +371,12 @@ class TestHealthcheck:
     def test_all_checks_pass(self) -> None:
         with (
             patch("subprocess.run", side_effect=_healthcheck_happy_path_calls()),
-            patch("hallm.cli.subcommands.k8s.socket.create_connection", side_effect=_socket_cm),
+            patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 return_value=self._urlopen_ok(),
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
@@ -391,12 +391,12 @@ class TestHealthcheck:
 
         with (
             patch("subprocess.run", side_effect=calls),
-            patch("hallm.cli.subcommands.k8s.socket.create_connection", side_effect=_socket_cm),
+            patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 return_value=self._urlopen_ok(),
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
@@ -411,12 +411,12 @@ class TestHealthcheck:
 
         with (
             patch("subprocess.run", side_effect=calls),
-            patch("hallm.cli.subcommands.k8s.socket.create_connection", side_effect=_socket_cm),
+            patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 return_value=self._urlopen_ok(),
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
@@ -429,14 +429,14 @@ class TestHealthcheck:
         with (
             patch("subprocess.run", side_effect=_healthcheck_happy_path_calls()),
             patch(
-                "hallm.cli.subcommands.k8s.socket.create_connection",
+                "hallm.cli.subcommands.cluster.socket.create_connection",
                 side_effect=OSError("refused"),
             ),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 return_value=self._urlopen_ok(),
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
@@ -458,12 +458,12 @@ class TestHealthcheck:
         ]
         with (
             patch("subprocess.run", side_effect=calls),
-            patch("hallm.cli.subcommands.k8s.socket.create_connection", side_effect=_socket_cm),
+            patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 return_value=self._urlopen_ok(),
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
@@ -478,12 +478,12 @@ class TestHealthcheck:
 
         with (
             patch("subprocess.run", side_effect=calls),
-            patch("hallm.cli.subcommands.k8s.socket.create_connection", side_effect=_socket_cm),
+            patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 return_value=self._urlopen_ok(),
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
@@ -497,73 +497,18 @@ class TestHealthcheck:
 
         with (
             patch("subprocess.run", side_effect=_healthcheck_happy_path_calls()),
-            patch("hallm.cli.subcommands.k8s.socket.create_connection", side_effect=_socket_cm),
+            patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 side_effect=_ue.HTTPError("http://x", 500, "boom", {}, None),  # type: ignore[arg-type]
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="smoke: yaml"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
             patch("hallm.cli.base.poll.time.sleep"),
         ):
             result = runner.invoke(app, ["healthcheck"])
 
         assert result.exit_code == 1
-
-
-# ---------------------------------------------------------------------------
-# get-cert
-# ---------------------------------------------------------------------------
-
-
-class TestGetCert:
-    def test_get_cert_success(self, tmp_path: Path) -> None:
-        sd = tmp_path / ".hallm"
-        sd.mkdir()
-        with (
-            patch(
-                "subprocess.run",
-                side_effect=[_cp(stdout=_CERT_B64), _cp(stdout=_KEY_B64)],
-            ),
-            patch.object(settings, "SECRETS_PATH", sd),
-            _PATCH_DOCKER_CERT as mock_cert,
-        ):
-            result = runner.invoke(app, ["get-cert"])
-
-        assert result.exit_code == 0
-        assert "Cert →" in result.output
-        assert "Key  →" in result.output
-        assert "BEGIN CERTIFICATE" in (sd / "cerberus-ca.pem").read_text()
-        assert "BEGIN EC PRIVATE KEY" in (sd / "cerberus-ca.key").read_text()
-        mock_cert.assert_called_once_with(sd / "cerberus-ca.pem")
-
-    def test_get_cert_kubectl_fails(self) -> None:
-        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):
-            result = runner.invoke(app, ["get-cert"])
-        assert result.exit_code == 1
-        assert "cerberus-ca-secret" in result.output
-
-    def test_get_cert_empty_cert(self, tmp_path: Path) -> None:
-        sd = tmp_path / ".hallm"
-        sd.mkdir()
-        with (
-            patch("subprocess.run", return_value=_cp(returncode=0, stdout="")),
-            patch.object(settings, "SECRETS_PATH", sd),
-        ):
-            result = runner.invoke(app, ["get-cert"])
-        assert result.exit_code == 1
-        assert "empty" in result.output
-
-    def test_get_cert_empty_key(self, tmp_path: Path) -> None:
-        sd = tmp_path / ".hallm"
-        sd.mkdir()
-        with (
-            patch("subprocess.run", side_effect=[_cp(stdout=_CERT_B64), _cp(stdout="")]),
-            patch.object(settings, "SECRETS_PATH", sd),
-        ):
-            result = runner.invoke(app, ["get-cert"])
-        assert result.exit_code == 1
-        assert "empty" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -574,7 +519,7 @@ class TestGetCert:
 class TestPreflight:
     def test_passes_when_all_checks_succeed(self) -> None:
         with patch(
-            "hallm.cli.subcommands.k8s._preflight_checks",
+            "hallm.cli.subcommands.cluster._preflight_checks",
             return_value=(("dummy", lambda: (True, None)),),
         ):
             result = runner.invoke(app, ["preflight"])
@@ -583,187 +528,12 @@ class TestPreflight:
 
     def test_fails_when_any_check_fails(self) -> None:
         with patch(
-            "hallm.cli.subcommands.k8s._preflight_checks",
+            "hallm.cli.subcommands.cluster._preflight_checks",
             return_value=(("dummy", lambda: (False, "do this thing")),),
         ):
             result = runner.invoke(app, ["preflight"])
         assert result.exit_code == 1
         assert "do this thing" in result.output
-
-
-# ---------------------------------------------------------------------------
-# remove
-# ---------------------------------------------------------------------------
-
-
-class TestRemove:
-    def test_missing_manifest_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        empty = tmp_path / "k8s"
-        empty.mkdir()
-        monkeypatch.setattr(settings, "K8S_PATH", empty)
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
-
-        result = runner.invoke(app, ["remove", "ollama", "--yes"])
-
-        assert result.exit_code == 1
-        assert "No manifest found" in result.output
-
-    def test_success_no_label_resources(self, k8s_dir: Path) -> None:
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                _cp(stdout="NAME\nnamespace/ollama"),
-                _cp(stdout=""),
-                _cp(stdout=""),
-                _cp(stdout=""),
-                _cp(stdout=""),
-                _cp(),
-            ],
-        ):
-            result = runner.invoke(app, ["remove", "ollama", "--yes"])
-
-        assert result.exit_code == 0
-        assert "removed" in result.output
-
-    def test_success_with_label_resources(self, k8s_dir: Path) -> None:
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                _cp(stdout="NAME\nnamespace/ollama"),
-                _cp(stdout="persistentvolumeclaim/data"),
-                _cp(stdout=""),
-                _cp(stdout=""),
-                _cp(stdout=""),
-                _cp(),
-                _cp(),
-                _cp(),
-                _cp(),
-                _cp(),
-            ],
-        ):
-            result = runner.invoke(app, ["remove", "ollama", "--yes"])
-
-        assert result.exit_code == 0
-        assert "removed" in result.output
-        assert "persistentvolumeclaim/data" in result.output
-
-    def test_confirmation_abort(self, k8s_dir: Path) -> None:
-        with patch(
-            "subprocess.run",
-            side_effect=[_cp(stdout="")] * 5,
-        ):
-            result = runner.invoke(app, ["remove", "ollama"], input="n\n")
-
-        assert result.exit_code != 0
-
-    def test_confirmation_proceed(self, k8s_dir: Path) -> None:
-        with patch(
-            "subprocess.run",
-            side_effect=[_cp(stdout="")] * 5 + [_cp()],
-        ):
-            result = runner.invoke(app, ["remove", "ollama"], input="y\n")
-
-        assert result.exit_code == 0
-
-    def test_manifest_delete_fails(self, k8s_dir: Path) -> None:
-        with patch(
-            "subprocess.run",
-            side_effect=[_cp(stdout="")] * 5 + [_cp(returncode=1, stderr="delete err")],
-        ):
-            result = runner.invoke(app, ["remove", "ollama", "--yes"])
-
-        assert result.exit_code == 1
-        assert "Failed to delete" in result.output
-
-    def test_label_resources_with_embedded_empty_line(self, k8s_dir: Path) -> None:
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                _cp(stdout="NAME\nnamespace/ollama"),  # preview
-                _cp(stdout="pvc/a\n\npvc/b"),  # pvc: interior empty line
-                _cp(stdout=""),  # secrets
-                _cp(stdout=""),  # configmaps
-                _cp(stdout=""),  # ingresses
-                _cp(),  # kubectl delete manifest
-                _cp(),  # delete by label pvc
-                _cp(),  # delete by label secrets
-                _cp(),  # delete by label configmaps
-                _cp(),  # delete by label ingresses
-            ],
-        ):
-            result = runner.invoke(app, ["remove", "ollama", "--yes"])
-        assert result.exit_code == 0
-        assert "pvc/a" in result.output
-        assert "pvc/b" in result.output
-
-    def test_custom_namespace(self, k8s_dir: Path) -> None:
-        with patch("subprocess.run", side_effect=[_cp(stdout="")] * 5 + [_cp()]) as mock:
-            result = runner.invoke(app, ["remove", "ollama", "--yes", "--namespace", "ollama"])
-
-        assert result.exit_code == 0
-        preview_args = mock.call_args_list[0][0][0]
-        assert "ollama" in preview_args
-
-
-# ---------------------------------------------------------------------------
-# seed-heimdall
-# ---------------------------------------------------------------------------
-
-
-class TestSeedHeimdall:
-    def test_no_pod_fails(self) -> None:
-        with patch("subprocess.run", return_value=_cp(stdout="")):
-            result = runner.invoke(app, ["seed-heimdall"])
-        assert result.exit_code == 1
-        assert "No Heimdall pod" in result.output
-
-    def test_db_not_ready_within_timeout(self) -> None:
-        # 1 call to find pod, then poll loop returns False forever.
-        with (
-            patch(
-                "subprocess.run",
-                side_effect=[_cp(stdout="heimdall-0")] + [_cp(returncode=1)] * 100,
-            ),
-            patch("hallm.cli.base.poll.time.monotonic", side_effect=[0, 0, 200, 200]),
-            patch("hallm.cli.base.poll.time.sleep"),
-        ):
-            result = runner.invoke(app, ["seed-heimdall", "--timeout", "1"])
-        assert result.exit_code == 1
-        assert "did not appear" in result.output
-
-    def test_seed_success(self) -> None:
-        with (
-            patch(
-                "subprocess.run",
-                side_effect=[
-                    _cp(stdout="heimdall-0"),  # find pod
-                    _cp(returncode=0, stdout="items"),  # db ready probe
-                    _cp(),  # sqlite3 seed
-                ],
-            ),
-            patch("hallm.cli.base.poll.time.monotonic", return_value=0),
-            patch("hallm.cli.base.poll.time.sleep"),
-        ):
-            result = runner.invoke(app, ["seed-heimdall"])
-        assert result.exit_code == 0
-        assert "Seeded" in result.output
-
-    def test_sqlite_seed_fails(self) -> None:
-        with (
-            patch(
-                "subprocess.run",
-                side_effect=[
-                    _cp(stdout="heimdall-0"),
-                    _cp(returncode=0, stdout="items"),
-                    _cp(returncode=1, stderr="locked"),
-                ],
-            ),
-            patch("hallm.cli.base.poll.time.monotonic", return_value=0),
-            patch("hallm.cli.base.poll.time.sleep"),
-        ):
-            result = runner.invoke(app, ["seed-heimdall"])
-        assert result.exit_code == 1
-        assert "sqlite3 seed failed" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -785,7 +555,7 @@ _DIAGNOSE_ALL_OK = [_cp()] * 8
 class TestDiagnose:
     def test_all_checks_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         with patch("subprocess.run", side_effect=list(_DIAGNOSE_ALL_OK)):
             result = runner.invoke(app, ["diagnose"])
@@ -794,7 +564,7 @@ class TestDiagnose:
 
     def test_basic_container_fail_shows_check_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         calls = list(_DIAGNOSE_ALL_OK)
         calls[1] = _cp(returncode=1, stderr="permission denied")
@@ -806,7 +576,7 @@ class TestDiagnose:
 
     def test_port_bind_fail_shows_check_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         calls = list(_DIAGNOSE_ALL_OK)
         calls[2] = _cp(returncode=1, stderr="port already in use")
@@ -817,7 +587,7 @@ class TestDiagnose:
 
     def test_low_memory_cgroup_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("512 MB", False)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("512 MB", False)
         )
         with patch("subprocess.run", side_effect=list(_DIAGNOSE_ALL_OK)):
             result = runner.invoke(app, ["diagnose"])
@@ -827,7 +597,7 @@ class TestDiagnose:
 
     def test_gpu_device_mount_fail_shows_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         calls = list(_DIAGNOSE_ALL_OK)
         calls[3] = _cp(returncode=1, stderr="no permission to /dev/kfd")
@@ -838,7 +608,7 @@ class TestDiagnose:
 
     def test_storage_mount_fail_shows_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         calls = list(_DIAGNOSE_ALL_OK)
         calls[5] = _cp(returncode=1, stderr="mount denied")
@@ -850,7 +620,7 @@ class TestDiagnose:
     def test_context_override_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(settings, "DOCKER_CONTEXT", "hallm")
         monkeypatch.setattr(
-            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         with patch("subprocess.run", side_effect=list(_DIAGNOSE_ALL_OK)):
             result = runner.invoke(app, ["diagnose", "--context", "default"])

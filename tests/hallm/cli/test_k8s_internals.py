@@ -1,12 +1,13 @@
-"""Targeted tests for the private helpers in hallm.cli.subcommands.k8s.
+"""Targeted tests for the private helpers in hallm.cli.subcommands.cluster and secrets.
 
-Most public commands are covered by test_k8s.py. This file exercises:
+Most public commands are covered by test_cluster.py. This file exercises:
 
 * the preflight checks individually
 * _mount_storage branches
 * _install_signoz / _apply_all_service_manifests
 * the GPU/DNS smoke helpers
 * _manifest
+* _configure_docker_registry_cert (lives in secrets)
 """
 
 import subprocess
@@ -17,7 +18,8 @@ from unittest.mock import patch
 import pytest
 import typer
 
-from hallm.cli.subcommands import k8s as mod
+from hallm.cli.subcommands import cluster as mod
+from hallm.cli.subcommands import secrets as secrets_mod
 from hallm.core.settings import settings
 
 
@@ -140,13 +142,13 @@ class TestCgroupMemoryOk:
 
 class TestPreflightChecks:
     def test_docker_context_ok(self) -> None:
-        with patch("hallm.cli.subcommands.k8s._run", return_value=_cp()):
+        with patch("hallm.cli.subcommands.cluster._run", return_value=_cp()):
             ok, hint = mod._check_docker_context_exists()
         assert ok is True
         assert hint is None
 
     def test_docker_context_missing(self) -> None:
-        with patch("hallm.cli.subcommands.k8s._run", return_value=_cp(returncode=1)):
+        with patch("hallm.cli.subcommands.cluster._run", return_value=_cp(returncode=1)):
             ok, hint = mod._check_docker_context_exists()
         assert ok is False
         assert "install-rootless-docker" in hint  # type: ignore[operator]
@@ -265,7 +267,7 @@ class TestInstallSignoz:
                     _cp(),  # kubectl apply ingress
                 ],
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="ingress: yes"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="ingress: yes"),
         ):
             mod._install_signoz()
 
@@ -281,7 +283,7 @@ class TestInstallSignoz:
                     _cp(),
                 ],
             ),
-            patch("hallm.cli.subcommands.k8s._manifest", return_value="ingress: yes"),
+            patch("hallm.cli.subcommands.cluster._manifest", return_value="ingress: yes"),
         ):
             mod._install_signoz()
 
@@ -300,7 +302,12 @@ class TestInstallSignoz:
 
 class TestApplyAllServiceManifests:
     def test_skips_managed_manifests(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        for name in ("cerberus.yaml", "registries.yaml", "signoz-ingress.yaml", "ollama.yaml"):
+        for name in (
+            "cerberus.yaml",
+            "registries.yaml",
+            "signoz-ingress.yaml",
+            "ollama.yaml",
+        ):
             (tmp_path / name).write_text(f"kind: Test  # {name}")
         monkeypatch.setattr(settings, "K8S_PATH", tmp_path)
         with patch("hallm.cli.base.kubectl.apply") as apply:
@@ -352,11 +359,13 @@ class TestGpuSmoke:
 
 class TestStaticHealthCheckHelpers:
     def test_cluster_running_returncode_nonzero(self) -> None:
-        with patch("hallm.cli.subcommands.k8s._docker.run", return_value=_cp(returncode=1)):
+        with patch("hallm.cli.subcommands.cluster._docker.run", return_value=_cp(returncode=1)):
             assert mod._cluster_running_via_k3d() is False
 
     def test_cluster_running_invalid_json(self) -> None:
-        with patch("hallm.cli.subcommands.k8s._docker.run", return_value=_cp(stdout="not-json")):
+        with patch(
+            "hallm.cli.subcommands.cluster._docker.run", return_value=_cp(stdout="not-json")
+        ):
             assert mod._cluster_running_via_k3d() is False
 
     def test_gpu_visible_when_get_json_returns_none(self) -> None:
@@ -397,8 +406,8 @@ class TestConfigureDockerRegistryCert:
     def test_creates_certs_dir_and_writes_ca_crt(self, tmp_path: Path) -> None:
         pem = tmp_path / "cerberus-ca.pem"
         pem.write_text("CERT_CONTENT")
-        with patch("hallm.cli.subcommands.k8s.Path.home", return_value=tmp_path):
-            mod._configure_docker_registry_cert(pem)
+        with patch("hallm.cli.subcommands.secrets.Path.home", return_value=tmp_path):
+            secrets_mod._configure_docker_registry_cert(pem)
         ca_crt = tmp_path / ".config" / "docker" / "certs.d" / "unregistry.hallm.local" / "ca.crt"
         assert ca_crt.exists()
         assert ca_crt.read_text() == "CERT_CONTENT"
@@ -409,8 +418,8 @@ class TestConfigureDockerRegistryCert:
         certs_dir = tmp_path / ".config" / "docker" / "certs.d" / "unregistry.hallm.local"
         certs_dir.mkdir(parents=True)
         (certs_dir / "ca.crt").write_text("OLD_CERT")
-        with patch("hallm.cli.subcommands.k8s.Path.home", return_value=tmp_path):
-            mod._configure_docker_registry_cert(pem)
+        with patch("hallm.cli.subcommands.secrets.Path.home", return_value=tmp_path):
+            secrets_mod._configure_docker_registry_cert(pem)
         assert (certs_dir / "ca.crt").read_text() == "NEW_CERT"
 
 
@@ -453,7 +462,7 @@ class TestDnsSmoke:
                 ],
             ),
             patch(
-                "hallm.cli.subcommands.k8s.urllib.request.urlopen",
+                "hallm.cli.subcommands.cluster.urllib.request.urlopen",
                 side_effect=OSError("network down"),
             ),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),

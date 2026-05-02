@@ -16,12 +16,12 @@ def test_root_no_args_shows_help() -> None:
 def test_root_help_lists_all_subcommands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for name in ("mcp", "db", "k8s", "container"):
+    for name in ("mcp", "db", "cluster", "container", "seed"):
         assert name in result.output
 
 
-def test_k8s_subcommand_help() -> None:
-    result = runner.invoke(app, ["k8s", "--help"])
+def test_cluster_subcommand_help() -> None:
+    result = runner.invoke(app, ["cluster", "--help"])
     assert result.exit_code == 0
     assert "preflight" in result.output
     assert "setup" in result.output
