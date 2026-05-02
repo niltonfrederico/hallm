@@ -4,6 +4,7 @@ import base64
 import json
 import subprocess
 from pathlib import Path
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -93,6 +94,7 @@ def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
 
 _PATCH_MOUNT = patch("hallm.cli.subcommands.k8s._mount_storage")
 _PATCH_PREFLIGHT = patch("hallm.cli.subcommands.k8s._run_preflight")
+_PATCH_SETUP_POSTGRES = patch("hallm.cli.subcommands.k8s._setup_postgres")
 
 
 class TestSetup:
@@ -106,12 +108,14 @@ class TestSetup:
             patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
             patch("hallm.cli.subcommands.k8s._install_signoz"),
             patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 0
         assert "Done" in result.output
+        assert "Syncing secrets" in result.output
         assert mock.call_count == 9
 
     def test_k3d_create_fails(self, tmp_path: Path) -> None:
@@ -239,6 +243,7 @@ class TestSetup:
             patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
             patch("hallm.cli.subcommands.k8s._install_signoz"),
             patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup", "--context", "default"])
@@ -258,14 +263,42 @@ class TestSetup:
             patch("subprocess.run", return_value=_cp()) as mock,
             patch("hallm.cli.subcommands.k8s._install_signoz"),
             patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 0
         assert "Restoring" in result.output
-        # 4 pre-cerberus (incl. api-ready poll) + create-secret dry-run + apply secret + apply issuer
+        # 4 pre-cerberus (incl. api-ready poll) + webhook wait + create-secret dry-run + apply secret + apply issuer
         assert mock.call_count == 8
+
+
+# ---------------------------------------------------------------------------
+# _setup_postgres
+# ---------------------------------------------------------------------------
+
+
+class TestSetupPostgres:
+    def test_applies_manifest_waits_and_bootstraps(self, k8s_dir: Path) -> None:
+        (k8s_dir / "postgres.yaml").write_text("apiVersion: v1")
+        with (
+            patch("subprocess.run", return_value=_cp()) as mock,
+            patch(
+                "hallm.cli.subcommands.db._run_bootstrap",
+                new_callable=AsyncMock,
+            ),
+        ):
+            from hallm.cli.subcommands.k8s import _setup_postgres
+
+            _setup_postgres()
+
+        # kubectl apply -f - (postgres manifest) + kubectl wait deploy/postgres
+        assert mock.call_count == 2
+        apply_cmd = mock.call_args_list[0][0][0]
+        assert apply_cmd == ["kubectl", "apply", "-f", "-"]
+        wait_cmd = mock.call_args_list[1][0][0]
+        assert "deploy/postgres" in wait_cmd
 
 
 # ---------------------------------------------------------------------------
@@ -716,6 +749,27 @@ class TestRemove:
         assert result.exit_code == 1
         assert "Failed to delete" in result.output
 
+    def test_label_resources_with_embedded_empty_line(self, k8s_dir: Path) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[
+                _cp(stdout="NAME\nnamespace/ollama"),  # preview
+                _cp(stdout="pvc/a\n\npvc/b"),  # pvc: interior empty line
+                _cp(stdout=""),  # secrets
+                _cp(stdout=""),  # configmaps
+                _cp(stdout=""),  # ingresses
+                _cp(),  # kubectl delete manifest
+                _cp(),  # delete by label pvc
+                _cp(),  # delete by label secrets
+                _cp(),  # delete by label configmaps
+                _cp(),  # delete by label ingresses
+            ],
+        ):
+            result = runner.invoke(app, ["remove", "ollama", "--yes"])
+        assert result.exit_code == 0
+        assert "pvc/a" in result.output
+        assert "pvc/b" in result.output
+
     def test_custom_namespace(self, k8s_dir: Path) -> None:
         with patch("subprocess.run", side_effect=[_cp(stdout="")] * 5 + [_cp()]) as mock:
             result = runner.invoke(app, ["remove", "ollama", "--yes", "--namespace", "ollama"])
@@ -844,6 +898,28 @@ class TestDiagnose:
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
         assert "512 MB" in result.output
+
+    def test_gpu_device_mount_fail_shows_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+        )
+        calls = list(_DIAGNOSE_ALL_OK)
+        calls[3] = _cp(returncode=1, stderr="no permission to /dev/kfd")
+        with patch("subprocess.run", side_effect=calls):
+            result = runner.invoke(app, ["diagnose"])
+        assert result.exit_code == 1
+        assert "no permission to /dev/kfd" in result.output
+
+    def test_storage_mount_fail_shows_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+        )
+        calls = list(_DIAGNOSE_ALL_OK)
+        calls[5] = _cp(returncode=1, stderr="mount denied")
+        with patch("subprocess.run", side_effect=calls):
+            result = runner.invoke(app, ["diagnose"])
+        assert result.exit_code == 1
+        assert "mount denied" in result.output
 
     def test_context_override_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(settings, "DOCKER_CONTEXT", "hallm")

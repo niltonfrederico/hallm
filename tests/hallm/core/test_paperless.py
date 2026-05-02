@@ -88,6 +88,21 @@ class TestPaperlessClient:
         async with _client_with_handler(handler) as p:
             await p.delete_document(7)
 
+    async def test_list_documents_no_query(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert "query" not in request.url.params
+            return httpx.Response(200, json={"results": [], "count": 0})
+
+        async with _client_with_handler(handler) as p:
+            result = await p.list_documents()
+        assert result["count"] == 0
+
+    async def test_build_client_returns_async_client(self) -> None:
+        client = PaperlessClient(base_url="https://paperless.test", token="tok")
+        built = client._build_client()
+        assert isinstance(built, httpx.AsyncClient)
+        await built.aclose()
+
     async def test_error_response_raises(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(401, text="forbidden")

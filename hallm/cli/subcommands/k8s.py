@@ -9,6 +9,7 @@ The commands fall into two groups:
   routine ops against an already-running cluster.
 """
 
+import asyncio
 import base64
 import json
 import os
@@ -28,6 +29,7 @@ from hallm.cli.base.shell import check as _check
 from hallm.cli.base.shell import fail as _fail
 from hallm.cli.base.shell import run as _run
 from hallm.cli.base.shell import run_or_fail as _run_or_fail
+from hallm.cli.subcommands import db as _db
 from hallm.core.settings import settings
 
 app = typer.Typer(help="Kubernetes operations.", no_args_is_help=True)
@@ -49,7 +51,7 @@ _SIGNOZ_NAMESPACE = "signoz"
 # Manifests applied/managed outside the generic apply loop.
 # registries.yaml is a k3s registry config file, not a Kubernetes manifest.
 _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
-    {"cerberus.yaml", "registries.yaml", "signoz-ingress.yaml"}
+    {"cerberus.yaml", "postgres.yaml", "registries.yaml", "signoz-ingress.yaml"}
 )
 
 # Applied when restoring Cerberus CA from an existing cert+key in ~/.hallm/.
@@ -434,6 +436,14 @@ def _install_signoz() -> None:
     kubectl.apply(_manifest("signoz-ingress.yaml"), label="SigNoz Ingress")
 
 
+def _setup_postgres() -> None:
+    """Apply the postgres manifest, wait for the deployment to be ready, then bootstrap the DB."""
+    kubectl.apply(_manifest("postgres.yaml"), label="postgres")
+    kubectl.wait("deploy/postgres", "Available", namespace=_DEFAULT_NAMESPACE, timeout="120s")
+    typer.echo("\n==> Running database bootstrap...")
+    asyncio.run(_db._run_bootstrap())
+
+
 def _apply_all_service_manifests() -> None:
     """Apply every top-level k8s/*.yaml manifest except the ones managed elsewhere."""
     for manifest in sorted(settings.K8S_PATH.glob("*.yaml")):
@@ -535,6 +545,12 @@ def setup(
             kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
             typer.echo("\n==> Exporting Cerberus CA to ~/.hallm/...")
             _export_cerberus_ca(pem_path, key_path)
+
+        typer.echo("\n==> Syncing secrets to cluster...")
+        sync_secrets()
+
+        typer.echo("\n==> Setting up postgres...")
+        _setup_postgres()
 
         typer.echo("\n==> Installing SigNoz via Helm...")
         _install_signoz()

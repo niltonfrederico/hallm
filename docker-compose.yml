@@ -34,8 +34,8 @@ services:
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
-      - ./hallm:/app/hallm
-      - ./tests:/app/tests
+      - .:/app
+      - /app/.venv
 
   tests:
     build:
@@ -47,8 +47,8 @@ services:
     command: [ "pytest", "-m", "not integration" ]
     profiles: [ "test" ]
     volumes:
-      - ./hallm:/app/hallm
-      - ./tests:/app/tests
+      - .:/app
+      - /app/.venv
 
   integration-tests:
     build:
@@ -61,8 +61,8 @@ services:
     command: [ "pytest", "-m", "integration" ]
     profiles: [ "test" ]
     volumes:
-      - ./hallm:/app/hallm
-      - ./tests:/app/tests
+      - .:/app
+      - /app/.venv
 
   lint:
     build:
@@ -71,13 +71,8 @@ services:
     command: [ "pre-commit", "run", "--all-files" ]
     profiles: [ "lint" ]
     volumes:
-      - ./.git:/app/.git
-      - ./.markdownlint.json:/app/.markdownlint.json
-      - ./.pre-commit-config.yaml:/app/.pre-commit-config.yaml
-      - ./pyproject.toml:/app/pyproject.toml
-      - ./hallm:/app/hallm
-      - ./tests:/app/tests
-      - ./README.md:/app/README.md
+      - .:/app
+      - /app/.venv
 
 volumes:
   postgres_data:

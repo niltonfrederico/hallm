@@ -95,6 +95,49 @@ class TestMountStorage:
 # ---------------------------------------------------------------------------
 
 
+class TestPreflightChecksList:
+    def test_returns_expected_labels(self) -> None:
+        checks = mod._preflight_checks()
+        assert len(checks) == 6
+        labels = [label for label, _ in checks]
+        assert any("Docker context" in label for label in labels)
+        assert any("GPU" in label for label in labels)
+        assert any("cgroup" in label for label in labels)
+        assert any("Storage" in label for label in labels)
+
+
+class TestCgroupMemoryOk:
+    def test_oserror_returns_cannot_read(self) -> None:
+        with patch.object(Path, "read_text", side_effect=OSError("nope")):
+            display, ok = mod._cgroup_memory_ok(1000)
+        assert ok is False
+        assert "cannot read" in display
+
+    def test_max_returns_unlimited(self) -> None:
+        with patch.object(Path, "read_text", return_value="max\n"):
+            display, ok = mod._cgroup_memory_ok(1000)
+        assert display == "unlimited"
+        assert ok is True
+
+    def test_numeric_value_under_threshold(self) -> None:
+        with patch.object(Path, "read_text", return_value="1073741824\n"):  # 1 GB
+            display, ok = mod._cgroup_memory_ok(1000)
+        assert "1024 MB" in display
+        assert ok is False
+
+    def test_numeric_value_at_threshold(self) -> None:
+        with patch.object(Path, "read_text", return_value="2147483648\n"):  # 2 GB
+            display, ok = mod._cgroup_memory_ok(1000)
+        assert "2048 MB" in display
+        assert ok is True
+
+    def test_unreadable_value_returns_unreadable(self) -> None:
+        with patch.object(Path, "read_text", return_value="not-a-number\n"):
+            display, ok = mod._cgroup_memory_ok(1000)
+        assert ok is False
+        assert "unreadable" in display
+
+
 class TestPreflightChecks:
     def test_docker_context_ok(self) -> None:
         with patch("hallm.cli.subcommands.k8s._run", return_value=_cp()):
@@ -276,6 +319,21 @@ class TestGpuSmoke:
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="apply err")):
             assert mod._gpu_smoke_test() is False
 
+    def test_pod_pending_phase_times_out(self) -> None:
+        with (
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    _cp(),  # kubectl apply
+                    _cp(stdout="Pending"),  # _pod_phase → _ready() returns False
+                    _cp(),  # kubectl delete
+                ],
+            ),
+            patch("hallm.cli.base.poll.time.monotonic", side_effect=[0, 0, 100]),
+            patch("hallm.cli.base.poll.time.sleep"),
+        ):
+            assert mod._gpu_smoke_test() is False
+
     def test_pod_failed_phase_aborts(self) -> None:
         with (
             patch(
@@ -326,6 +384,13 @@ class TestStaticHealthCheckHelpers:
     def test_cerberus_issuer_returns_false_when_get_json_none(self) -> None:
         with patch("hallm.cli.base.kubectl.get_json", return_value=None):
             assert mod._cerberus_issuer_ready() is False
+
+    def test_gpu_not_visible_when_allocatable_zero(self) -> None:
+        with patch(
+            "hallm.cli.base.kubectl.get_json",
+            return_value={"items": [{"status": {"allocatable": {"amd.com/gpu": "0"}}}]},
+        ):
+            assert mod._gpu_visible_to_kubernetes() is False
 
 
 class TestDnsSmoke:

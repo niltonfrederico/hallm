@@ -121,9 +121,12 @@ flowchart TD
     WH_OK -- Yes --> CA_EXISTS{~/.hallm/ CA\ncerts exist?}
     CA_EXISTS -- Yes --> CA_IMPORT[Import cert+key as Secret\nCreate cerberus-ca ClusterIssuer]
     CA_EXISTS -- No --> CA_NEW[Apply cerberus.yaml\nWait for cert issuance · export to ~/.hallm/]
-    CA_IMPORT --> SIGNOZ[Install SigNoz via Helm]
-    CA_NEW --> SIGNOZ
-    SIGNOZ --> MANIFESTS[Apply all k8s/*.yaml manifests]
+    CA_IMPORT --> SYNC[Sync ~/.hallm/*.env → K8s Secrets]
+    CA_NEW --> SYNC
+    SYNC --> PG[Apply postgres manifest\nWait for Available · max 120 s]
+    PG --> DBBOOT[db bootstrap\nCreate schemas · per-service DBs]
+    DBBOOT --> SIGNOZ[Install SigNoz via Helm]
+    SIGNOZ --> MANIFESTS[Apply remaining k8s/*.yaml manifests]
     MANIFESTS --> DONE([Cluster is ready])
     MANIFESTS -- failure --> NUKE[k3d cluster delete hallm]
     NUKE --> FAIL([Setup failed])
