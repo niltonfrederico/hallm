@@ -510,6 +510,8 @@ def setup(
             "5432:5432@loadbalancer",
             "-p",
             "5000:5000@loadbalancer",
+            "-p",
+            "6379:6379@loadbalancer",
             "--registry-config",
             str(settings.K8S_PATH / "registries.yaml"),
             "--k3s-arg",

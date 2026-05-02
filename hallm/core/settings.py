@@ -89,8 +89,7 @@ class Settings:
             "user": env.str("POSTGRES_USER"),
             "password": env.str("POSTGRES_PASSWORD"),
             "name": env.str("POSTGRES_DB"),
-            "local_host": env.str("DATABASE_LOCAL_HOST"),
-            "production_host": env.str("DATABASE_PROD_HOST"),
+            "host": env.str("DATABASE_HOST"),
             "port": env.int("POSTGRES_PORT", 5432),
         }
 
@@ -100,7 +99,7 @@ class Settings:
         if driver:
             db_driver += f"+{driver}"
 
-        host = db["local_host"] if self.environment == "localhost" else db["production_host"]
+        host = db["host"] if self.environment == "localhost" else db["production_host"]
         return f"{db_driver}://{db['user']}:{db['password']}@{host}:{db['port']}/{db['name']}"
 
     @cached_property

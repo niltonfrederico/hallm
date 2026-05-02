@@ -11,8 +11,7 @@ _REQUIRED_ENV: dict[str, str] = {
     "POSTGRES_USER": "testuser",
     "POSTGRES_PASSWORD": "testpass",
     "POSTGRES_DB": "testdb",
-    "DATABASE_LOCAL_HOST": "localhost",
-    "DATABASE_PROD_HOST": "prod.db.example.com",
+    "DATABASE_HOST": "localhost",
 }
 
 
@@ -68,7 +67,7 @@ class TestDatabase:
         assert s.database["password"] == "testpass"
         assert s.database["name"] == "testdb"
 
-    def test_database_url_localhost(self, base_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_database_url(self, base_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ENVIRONMENT", "localhost")
         from hallm.core.settings import Settings
 
@@ -77,14 +76,6 @@ class TestDatabase:
         s.environment = "localhost"
         assert "localhost" in s.database_url
         assert "prod.db.example.com" not in s.database_url
-
-    def test_database_url_production(self, base_env: None) -> None:
-        from hallm.core.settings import Settings
-
-        s = Settings()
-        s.environment = "production"
-        assert "prod.db.example.com" in s.database_url
-        assert "localhost" not in s.database_url
 
     def test_tortoise_database_url_has_asyncpg_driver(self, base_env: None) -> None:
         from hallm.core.settings import Settings

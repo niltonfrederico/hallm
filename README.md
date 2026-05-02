@@ -186,8 +186,7 @@ scripts/        # One-shot installers (rootless Docker, etc.)
 
 See [`.env.example`](.env.example) for all supported variables. Most have
 sensible defaults; only the database connection vars (`DATABASE_DRIVER`,
-`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_LOCAL_HOST`,
-`DATABASE_PROD_HOST`) must be supplied.
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `DATABASE_HOST`) must be supplied.
 
 ## License
 

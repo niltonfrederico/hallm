@@ -177,7 +177,7 @@ class TestPrepare:
         self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         src = tmp_path / ".env"
-        src.write_text("DATABASE_LOCAL_HOST=postgres.hallm.local\nENVIRONMENT=localhost\n")
+        src.write_text("DATABASE_HOST=postgres.hallm.local\nENVIRONMENT=localhost\n")
         monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
 
         runner.invoke(app, ["prepare"])
