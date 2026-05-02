@@ -100,6 +100,35 @@ uv run hallm k8s healthcheck
 uv run hallm k8s nuke
 ```
 
+### `setup` flow
+
+```mermaid
+flowchart TD
+    START([hallm k8s setup]) --> PREFLIGHT[Run preflight checks\nDocker context · cgroups · GPU · storage]
+    PREFLIGHT --> PRE_OK{Pass?}
+    PRE_OK -- No --> ABORT([Abort])
+    PRE_OK -- Yes --> SECRETS[Create ~/.hallm/ secrets dir]
+    SECRETS --> MOUNT[Mount storage device]
+    MOUNT --> K3D[Create k3d cluster 'hallm'\nMap GPU devs · expose ports 80/443/5432/5000\nEnable KubeletInUserNamespace]
+    K3D --> API[Wait for Kubernetes API server\nmax 120 s]
+    API --> API_OK{Ready?}
+    API_OK -- No --> NUKE
+    API_OK -- Yes --> ROCM[Install ROCm device plugin\namd.com/gpu resource]
+    ROCM --> CM[Install cert-manager]
+    CM --> WEBHOOK[Wait for cert-manager webhook\nmax 120 s]
+    WEBHOOK --> WH_OK{Ready?}
+    WH_OK -- No --> NUKE
+    WH_OK -- Yes --> CA_EXISTS{~/.hallm/ CA\ncerts exist?}
+    CA_EXISTS -- Yes --> CA_IMPORT[Import cert+key as Secret\nCreate cerberus-ca ClusterIssuer]
+    CA_EXISTS -- No --> CA_NEW[Apply cerberus.yaml\nWait for cert issuance · export to ~/.hallm/]
+    CA_IMPORT --> SIGNOZ[Install SigNoz via Helm]
+    CA_NEW --> SIGNOZ
+    SIGNOZ --> MANIFESTS[Apply all k8s/*.yaml manifests]
+    MANIFESTS --> DONE([Cluster is ready])
+    MANIFESTS -- failure --> NUKE[k3d cluster delete hallm]
+    NUKE --> FAIL([Setup failed])
+```
+
 ### What gets provisioned
 
 | Component | Detail |
