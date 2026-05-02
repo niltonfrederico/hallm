@@ -3,24 +3,23 @@
 from typer.testing import CliRunner
 
 from hallm.cli.main import app
+from hallm.cli.main import main
 
-runner = CliRunner()
 
-
-def test_root_no_args_shows_help() -> None:
+def test_root_no_args_shows_help(runner: CliRunner) -> None:
     result = runner.invoke(app, [])
     assert result.exit_code in {0, 2}
     assert "hallm" in result.output.lower() or "usage" in result.output.lower()
 
 
-def test_root_help_lists_all_subcommands() -> None:
+def test_root_help_lists_all_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     for name in ("mcp", "db", "cluster", "container", "seed"):
         assert name in result.output
 
 
-def test_cluster_subcommand_help() -> None:
+def test_cluster_subcommand_help(runner: CliRunner) -> None:
     result = runner.invoke(app, ["cluster", "--help"])
     assert result.exit_code == 0
     assert "preflight" in result.output
@@ -30,6 +29,4 @@ def test_cluster_subcommand_help() -> None:
 
 
 def test_main_function_callable() -> None:
-    from hallm.cli.main import main
-
     assert callable(main)

@@ -1,23 +1,23 @@
 """Unit tests for hallm.core.gotify."""
 
+import json
+from collections.abc import Callable
+
 import httpx
 import pytest
 
 from hallm.core.gotify import GotifyClient
 from hallm.core.gotify import GotifyError
+from tests.mocks import mock_http_client
 
 
-def _client_with_handler(handler) -> GotifyClient:  # type: ignore[no-untyped-def]
-    """Build a GotifyClient whose underlying httpx client uses the supplied handler."""
-
-    class _Patched(GotifyClient):
-        def _build_client(self) -> httpx.AsyncClient:
-            return httpx.AsyncClient(
-                base_url=self._base_url,
-                transport=httpx.MockTransport(handler),
-            )
-
-    return _Patched(base_url="https://gotify.test", app_token="tok")
+def _gotify_client(handler: Callable[[httpx.Request], httpx.Response]) -> GotifyClient:
+    return mock_http_client(
+        GotifyClient,
+        base_url="https://gotify.test",
+        handler=handler,
+        app_token="tok",
+    )
 
 
 class TestGotifyClient:
@@ -27,7 +27,7 @@ class TestGotifyClient:
             assert request.url.params["token"] == "tok"
             return httpx.Response(200, json={"id": 1})
 
-        async with _client_with_handler(handler) as g:
+        async with _gotify_client(handler) as g:
             data = await g.send("Hi", "There")
         assert data == {"id": 1}
 
@@ -35,12 +35,10 @@ class TestGotifyClient:
         captured: dict[str, object] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
-            import json as _json
-
-            captured.update(_json.loads(request.content))
+            captured.update(json.loads(request.content))
             return httpx.Response(200, json={"ok": True})
 
-        async with _client_with_handler(handler) as g:
+        async with _gotify_client(handler) as g:
             await g.send("t", "m", extras={"key": "val"})
         assert captured["extras"] == {"key": "val"}
 
@@ -48,7 +46,7 @@ class TestGotifyClient:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(500, text="server error")
 
-        async with _client_with_handler(handler) as g:
+        async with _gotify_client(handler) as g:
             with pytest.raises(GotifyError):
                 await g.send("t", "m")
 
@@ -56,7 +54,7 @@ class TestGotifyClient:
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"messages": [{"id": 1}, {"id": 2}]})
 
-        async with _client_with_handler(handler) as g:
+        async with _gotify_client(handler) as g:
             assert await g.list_messages(limit=5) == [{"id": 1}, {"id": 2}]
 
     async def test_delete_message(self) -> None:
@@ -66,7 +64,7 @@ class TestGotifyClient:
             seen["path"] = request.url.path
             return httpx.Response(200)
 
-        async with _client_with_handler(handler) as g:
+        async with _gotify_client(handler) as g:
             await g.delete_message(42)
         assert seen["path"] == "/message/42"
 

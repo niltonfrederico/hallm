@@ -1,8 +1,7 @@
 """Unit tests for hallm.cli.subcommands.cluster."""
 
-import base64
 import json
-import subprocess
+import urllib.error
 from pathlib import Path
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -11,44 +10,14 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from hallm.cli.subcommands.cluster import _setup_postgres
 from hallm.cli.subcommands.cluster import app
 from hallm.core.settings import settings
-
-runner = CliRunner()
+from tests.mocks import completed_process as _cp
 
 # ---------------------------------------------------------------------------
-# Helpers
+# File-local constants
 # ---------------------------------------------------------------------------
-
-
-def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
-
-
-def _socket_cm(*args: object, **kwargs: object) -> MagicMock:
-    """Return a MagicMock that works as a context manager (open socket)."""
-    return MagicMock()
-
-
-@pytest.fixture()
-def k8s_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Temp k8s manifests directory with a fake ollama manifest."""
-    k8s = tmp_path / "k8s"
-    k8s.mkdir()
-    (k8s / "ollama.yaml").write_text("apiVersion: v1\nkind: Namespace")
-    monkeypatch.setattr(settings, "K8S_PATH", k8s)
-    monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
-    return k8s
-
-
-@pytest.fixture()
-def secrets_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Creates ~/.hallm-equivalent dir in tmp_path and patches SECRETS_PATH."""
-    sd = tmp_path / ".hallm"
-    sd.mkdir()
-    monkeypatch.setattr(settings, "SECRETS_PATH", sd)
-    return sd
-
 
 _CLUSTER_LIST_OK = json.dumps([{"name": "hallm", "serversRunning": 1}])
 _NODES_OK = json.dumps({"items": [{"status": {"allocatable": {"amd.com/gpu": "1"}}}]})
@@ -64,15 +33,18 @@ _DS_OK = json.dumps(
 )
 _ISSUER_OK = json.dumps({"status": {"conditions": [{"type": "Ready", "status": "True"}]}})
 
-_CERT_B64 = base64.b64encode(
-    b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
-).decode()
-_KEY_B64 = base64.b64encode(
-    b"-----BEGIN EC PRIVATE KEY-----\nfake\n-----END EC PRIVATE KEY-----\n"
-).decode()
+_PATCH_MOUNT = patch("hallm.cli.subcommands.cluster._mount_storage")
+_PATCH_PREFLIGHT = patch("hallm.cli.subcommands.cluster._run_preflight")
+_PATCH_SETUP_POSTGRES = patch("hallm.cli.subcommands.cluster._setup_postgres")
+_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.secrets._configure_docker_registry_cert")
 
 
-def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
+def _socket_cm(*args: object, **kwargs: object) -> MagicMock:
+    """Return a MagicMock that works as a context manager (open socket)."""
+    return MagicMock()
+
+
+def _healthcheck_happy_path_calls() -> list:
     """Ordered subprocess.run return values for a fully passing healthcheck."""
     return [
         _cp(stdout=_CLUSTER_LIST_OK),  # k3d cluster list
@@ -92,20 +64,15 @@ def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
 # setup
 # ---------------------------------------------------------------------------
 
-_PATCH_MOUNT = patch("hallm.cli.subcommands.cluster._mount_storage")
-_PATCH_PREFLIGHT = patch("hallm.cli.subcommands.cluster._run_preflight")
-_PATCH_SETUP_POSTGRES = patch("hallm.cli.subcommands.cluster._setup_postgres")
-_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.secrets._configure_docker_registry_cert")
-
 
 class TestSetup:
-    def test_success(self, tmp_path: Path) -> None:
+    def test_success(self, tmp_path: Path, runner: CliRunner, cert_b64: str) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", return_value=_cp(stdout=_CERT_B64)) as mock,
+            patch("subprocess.run", return_value=_cp(stdout=cert_b64)) as mock,
             patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
             patch("hallm.cli.subcommands.cluster._install_signoz"),
             patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
@@ -121,7 +88,7 @@ class TestSetup:
         assert mock.call_count == 9
         mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
-    def test_k3d_create_fails(self, tmp_path: Path) -> None:
+    def test_k3d_create_fails(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -135,7 +102,7 @@ class TestSetup:
         assert result.exit_code == 1
         assert "k3d cluster create failed" in result.output
 
-    def test_api_server_not_ready(self, tmp_path: Path) -> None:
+    def test_api_server_not_ready(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -150,7 +117,7 @@ class TestSetup:
         assert result.exit_code == 1
         assert "API server" in result.output
 
-    def test_device_plugin_fails(self, tmp_path: Path) -> None:
+    def test_device_plugin_fails(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -167,7 +134,7 @@ class TestSetup:
         assert result.exit_code == 1
         assert "kubectl apply failed" in result.output
 
-    def test_cert_manager_fails(self, tmp_path: Path) -> None:
+    def test_cert_manager_fails(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -181,7 +148,7 @@ class TestSetup:
         assert result.exit_code == 1
         assert "cert-manager" in result.output
 
-    def test_webhook_wait_fails(self, tmp_path: Path) -> None:
+    def test_webhook_wait_fails(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -198,7 +165,7 @@ class TestSetup:
         assert result.exit_code == 1
         assert "webhook" in result.output
 
-    def test_nuke_on_failure(self, tmp_path: Path) -> None:
+    def test_nuke_on_failure(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -215,7 +182,7 @@ class TestSetup:
         last_cmd = mock.call_args_list[-1][0][0]
         assert "k3d" in last_cmd and "delete" in last_cmd
 
-    def test_cerberus_apply_fails(self, tmp_path: Path) -> None:
+    def test_cerberus_apply_fails(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         with (
@@ -234,7 +201,11 @@ class TestSetup:
         assert "Cerberus PKI" in result.output
 
     def test_context_override_is_applied(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
+        cert_b64: str,
     ) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
@@ -242,7 +213,7 @@ class TestSetup:
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", return_value=_cp(stdout=_CERT_B64)),
+            patch("subprocess.run", return_value=_cp(stdout=cert_b64)),
             patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
             patch("hallm.cli.subcommands.cluster._install_signoz"),
             patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
@@ -256,7 +227,7 @@ class TestSetup:
         assert "Docker context: default" in result.output
         assert settings.DOCKER_CONTEXT == "default"
 
-    def test_cerberus_restored_from_existing_files(self, tmp_path: Path) -> None:
+    def test_cerberus_restored_from_existing_files(self, tmp_path: Path, runner: CliRunner) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
         (secrets / "cerberus-ca.pem").write_text("CERT")
@@ -295,8 +266,6 @@ class TestSetupPostgres:
                 new_callable=AsyncMock,
             ),
         ):
-            from hallm.cli.subcommands.cluster import _setup_postgres
-
             _setup_postgres()
 
         # kubectl apply -f - (postgres manifest) + kubectl wait deploy/postgres
@@ -313,7 +282,7 @@ class TestSetupPostgres:
 
 
 class TestNuke:
-    def test_yes_flag_success(self) -> None:
+    def test_yes_flag_success(self, runner: CliRunner) -> None:
         with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["nuke", "--yes"])
 
@@ -321,25 +290,25 @@ class TestNuke:
         assert "deleted" in result.output
         mock.assert_called_once()
 
-    def test_yes_flag_delete_fails(self) -> None:
+    def test_yes_flag_delete_fails(self, runner: CliRunner) -> None:
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="err")):
             result = runner.invoke(app, ["nuke", "--yes"])
 
         assert result.exit_code == 1
         assert "delete failed" in result.output
 
-    def test_confirmation_abort(self) -> None:
+    def test_confirmation_abort(self, runner: CliRunner) -> None:
         result = runner.invoke(app, ["nuke"], input="n\n")
         assert result.exit_code != 0
 
-    def test_confirmation_proceed(self) -> None:
+    def test_confirmation_proceed(self, runner: CliRunner) -> None:
         with patch("subprocess.run", return_value=_cp()):
             result = runner.invoke(app, ["nuke"], input="y\n")
 
         assert result.exit_code == 0
         assert "deleted" in result.output
 
-    def test_volumes_flag_wipes_storage(self) -> None:
+    def test_volumes_flag_wipes_storage(self, runner: CliRunner) -> None:
         with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["nuke", "--yes", "--volumes"])
 
@@ -349,7 +318,7 @@ class TestNuke:
         rm_args = mock.call_args_list[1][0][0]
         assert rm_args[:3] == ["sudo", "rm", "-rf"]
 
-    def test_volumes_flag_included_in_confirmation_message(self) -> None:
+    def test_volumes_flag_included_in_confirmation_message(self, runner: CliRunner) -> None:
         result = runner.invoke(app, ["nuke", "--volumes"], input="n\n")
         assert "data in" in result.output
         assert result.exit_code != 0
@@ -368,7 +337,7 @@ class TestHealthcheck:
         mock_resp.__exit__ = MagicMock(return_value=False)
         return mock_resp
 
-    def test_all_checks_pass(self) -> None:
+    def test_all_checks_pass(self, runner: CliRunner) -> None:
         with (
             patch("subprocess.run", side_effect=_healthcheck_happy_path_calls()),
             patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
@@ -385,7 +354,7 @@ class TestHealthcheck:
         assert result.exit_code == 0
         assert "All checks passed" in result.output
 
-    def test_cluster_not_running_fails_exit(self) -> None:
+    def test_cluster_not_running_fails_exit(self, runner: CliRunner) -> None:
         calls = _healthcheck_happy_path_calls()
         calls[0] = _cp(stdout=json.dumps([]))
 
@@ -405,7 +374,7 @@ class TestHealthcheck:
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
 
-    def test_gpu_not_visible_fails_exit(self) -> None:
+    def test_gpu_not_visible_fails_exit(self, runner: CliRunner) -> None:
         calls = _healthcheck_happy_path_calls()
         calls[1] = _cp(stdout=json.dumps({"items": []}))
 
@@ -425,7 +394,7 @@ class TestHealthcheck:
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
 
-    def test_port_not_reachable_fails_exit(self) -> None:
+    def test_port_not_reachable_fails_exit(self, runner: CliRunner) -> None:
         with (
             patch("subprocess.run", side_effect=_healthcheck_happy_path_calls()),
             patch(
@@ -445,7 +414,7 @@ class TestHealthcheck:
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
 
-    def test_gpu_smoke_pod_apply_fails(self) -> None:
+    def test_gpu_smoke_pod_apply_fails(self, runner: CliRunner) -> None:
         calls = [
             _cp(stdout=_CLUSTER_LIST_OK),
             _cp(stdout=_NODES_OK),
@@ -472,7 +441,7 @@ class TestHealthcheck:
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
 
-    def test_cluster_list_parse_error_fails_gracefully(self) -> None:
+    def test_cluster_list_parse_error_fails_gracefully(self, runner: CliRunner) -> None:
         calls = _healthcheck_happy_path_calls()
         calls[0] = _cp(stdout="not-json")
 
@@ -492,15 +461,13 @@ class TestHealthcheck:
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
 
-    def test_dns_smoke_http_error_treated_as_unreachable(self) -> None:
-        import urllib.error as _ue
-
+    def test_dns_smoke_http_error_treated_as_unreachable(self, runner: CliRunner) -> None:
         with (
             patch("subprocess.run", side_effect=_healthcheck_happy_path_calls()),
             patch("hallm.cli.subcommands.cluster.socket.create_connection", side_effect=_socket_cm),
             patch(
                 "hallm.cli.subcommands.cluster.urllib.request.urlopen",
-                side_effect=_ue.HTTPError("http://x", 500, "boom", {}, None),  # type: ignore[arg-type]
+                side_effect=urllib.error.HTTPError("http://x", 500, "boom", {}, None),  # type: ignore[arg-type]
             ),
             patch("hallm.cli.subcommands.cluster._manifest", return_value="smoke: yaml"),
             patch("hallm.cli.base.poll.time.monotonic", return_value=0),
@@ -517,7 +484,7 @@ class TestHealthcheck:
 
 
 class TestPreflight:
-    def test_passes_when_all_checks_succeed(self) -> None:
+    def test_passes_when_all_checks_succeed(self, runner: CliRunner) -> None:
         with patch(
             "hallm.cli.subcommands.cluster._preflight_checks",
             return_value=(("dummy", lambda: (True, None)),),
@@ -526,7 +493,7 @@ class TestPreflight:
         assert result.exit_code == 0
         assert "All preflight checks passed" in result.output
 
-    def test_fails_when_any_check_fails(self) -> None:
+    def test_fails_when_any_check_fails(self, runner: CliRunner) -> None:
         with patch(
             "hallm.cli.subcommands.cluster._preflight_checks",
             return_value=(("dummy", lambda: (False, "do this thing")),),
@@ -553,7 +520,7 @@ _DIAGNOSE_ALL_OK = [_cp()] * 8
 
 
 class TestDiagnose:
-    def test_all_checks_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_all_checks_pass(self, monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
         monkeypatch.setattr(
             "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
@@ -562,30 +529,38 @@ class TestDiagnose:
         assert result.exit_code == 0
         assert "All diagnostic checks passed" in result.output
 
-    def test_basic_container_fail_shows_check_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ("call_index", "stderr", "expected_substring"),
+        [
+            (1, "permission denied", "permission denied"),
+            (2, "port already in use", "[FAIL]"),
+            (3, "no permission to /dev/kfd", "no permission to /dev/kfd"),
+            (5, "mount denied", "mount denied"),
+        ],
+        ids=["basic-container", "port-bind", "gpu-device-mount", "storage-mount"],
+    )
+    def test_check_failure_modes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
+        call_index: int,
+        stderr: str,
+        expected_substring: str,
+    ) -> None:
         monkeypatch.setattr(
             "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
         )
         calls = list(_DIAGNOSE_ALL_OK)
-        calls[1] = _cp(returncode=1, stderr="permission denied")
+        calls[call_index] = _cp(returncode=1, stderr=stderr)
         with patch("subprocess.run", side_effect=calls):
             result = runner.invoke(app, ["diagnose"])
         assert result.exit_code == 1
         assert "[FAIL]" in result.output
-        assert "permission denied" in result.output
+        assert expected_substring in result.output
 
-    def test_port_bind_fail_shows_check_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
-        )
-        calls = list(_DIAGNOSE_ALL_OK)
-        calls[2] = _cp(returncode=1, stderr="port already in use")
-        with patch("subprocess.run", side_effect=calls):
-            result = runner.invoke(app, ["diagnose"])
-        assert result.exit_code == 1
-        assert "[FAIL]" in result.output
-
-    def test_low_memory_cgroup_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_low_memory_cgroup_fails(
+        self, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
         monkeypatch.setattr(
             "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("512 MB", False)
         )
@@ -595,29 +570,9 @@ class TestDiagnose:
         assert "[FAIL]" in result.output
         assert "512 MB" in result.output
 
-    def test_gpu_device_mount_fail_shows_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
-        )
-        calls = list(_DIAGNOSE_ALL_OK)
-        calls[3] = _cp(returncode=1, stderr="no permission to /dev/kfd")
-        with patch("subprocess.run", side_effect=calls):
-            result = runner.invoke(app, ["diagnose"])
-        assert result.exit_code == 1
-        assert "no permission to /dev/kfd" in result.output
-
-    def test_storage_mount_fail_shows_stderr(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)
-        )
-        calls = list(_DIAGNOSE_ALL_OK)
-        calls[5] = _cp(returncode=1, stderr="mount denied")
-        with patch("subprocess.run", side_effect=calls):
-            result = runner.invoke(app, ["diagnose"])
-        assert result.exit_code == 1
-        assert "mount denied" in result.output
-
-    def test_context_override_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_context_override_applied(
+        self, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
         monkeypatch.setattr(settings, "DOCKER_CONTEXT", "hallm")
         monkeypatch.setattr(
             "hallm.cli.subcommands.cluster._cgroup_memory_ok", lambda _uid: ("unlimited", True)

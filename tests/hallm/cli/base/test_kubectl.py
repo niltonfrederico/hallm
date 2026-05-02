@@ -1,6 +1,5 @@
 """Unit tests for hallm.cli.base.kubectl."""
 
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,13 +7,7 @@ import pytest
 import typer
 
 from hallm.cli.base import kubectl
-
-
-def _cp(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
-
+from tests.mocks import completed_process as _cp
 
 # ---------------------------------------------------------------------------
 # apply

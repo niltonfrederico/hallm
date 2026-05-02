@@ -1,27 +1,21 @@
 """Unit tests for hallm.cli.subcommands.seed."""
 
-import subprocess
 from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from hallm.cli.subcommands.seed import app
-
-runner = CliRunner()
-
-
-def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
+from tests.mocks import completed_process as _cp
 
 
 class TestHeimdall:
-    def test_no_pod_fails(self) -> None:
+    def test_no_pod_fails(self, runner: CliRunner) -> None:
         with patch("subprocess.run", return_value=_cp(stdout="")):
             result = runner.invoke(app, [])
         assert result.exit_code == 1
         assert "No Heimdall pod" in result.output
 
-    def test_db_not_ready_within_timeout(self) -> None:
+    def test_db_not_ready_within_timeout(self, runner: CliRunner) -> None:
         with (
             patch(
                 "subprocess.run",
@@ -34,7 +28,7 @@ class TestHeimdall:
         assert result.exit_code == 1
         assert "did not appear" in result.output
 
-    def test_seed_success(self) -> None:
+    def test_seed_success(self, runner: CliRunner) -> None:
         with (
             patch(
                 "subprocess.run",
@@ -51,7 +45,7 @@ class TestHeimdall:
         assert result.exit_code == 0
         assert "Seeded" in result.output
 
-    def test_sqlite_seed_fails(self) -> None:
+    def test_sqlite_seed_fails(self, runner: CliRunner) -> None:
         with (
             patch(
                 "subprocess.run",

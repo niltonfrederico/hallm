@@ -1,18 +1,13 @@
 """Unit tests for hallm.cli.base.docker."""
 
-import subprocess
 from unittest.mock import patch
 
 import pytest
 import typer
 
 from hallm.cli.base import docker
-
-
-def _cp(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
+from hallm.core.settings import settings
+from tests.mocks import completed_process
 
 
 class TestContextEnv:
@@ -21,26 +16,24 @@ class TestContextEnv:
         assert "DOCKER_CONTEXT" in env
 
     def test_value_matches_settings(self) -> None:
-        from hallm.core.settings import settings
-
         assert docker.context_env()["DOCKER_CONTEXT"] == settings.DOCKER_CONTEXT
 
 
 class TestRun:
     def test_pins_docker_context_env(self) -> None:
-        with patch("hallm.cli.base.shell.run", return_value=_cp()) as mock:
+        with patch("hallm.cli.base.shell.run", return_value=completed_process()) as mock:
             docker.run(["docker", "info"])
         _, kwargs = mock.call_args
         assert "DOCKER_CONTEXT" in kwargs["env"]
 
     def test_returns_completed_process(self) -> None:
-        cp = _cp(stdout="ok")
+        cp = completed_process(stdout="ok")
         with patch("hallm.cli.base.shell.run", return_value=cp):
             result = docker.run(["docker", "ps"])
         assert result is cp
 
     def test_stream_forwarded_to_shell(self) -> None:
-        with patch("hallm.cli.base.shell.run", return_value=_cp()) as mock:
+        with patch("hallm.cli.base.shell.run", return_value=completed_process()) as mock:
             docker.run(["docker", "info"], stream=True)
         _, kwargs = mock.call_args
         assert kwargs["stream"] is True
@@ -48,18 +41,18 @@ class TestRun:
 
 class TestRunOrFail:
     def test_success_returns_process(self) -> None:
-        cp = _cp(stdout="ok")
+        cp = completed_process(stdout="ok")
         with patch("subprocess.run", return_value=cp):
             result = docker.run_or_fail(["docker", "ps"], "should not fail")
         assert result.stdout == "ok"
 
     def test_failure_raises_exit(self) -> None:
-        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="boom")):
+        with patch("subprocess.run", return_value=completed_process(returncode=1, stderr="boom")):
             with pytest.raises(typer.Exit):
                 docker.run_or_fail(["docker", "ps"], "docker failed")
 
     def test_stream_forwarded_to_shell(self) -> None:
-        with patch("hallm.cli.base.shell.run_or_fail", return_value=_cp()) as mock:
+        with patch("hallm.cli.base.shell.run_or_fail", return_value=completed_process()) as mock:
             docker.run_or_fail(["k3d", "cluster", "create"], "failed", stream=True)
         _, kwargs = mock.call_args
         assert kwargs["stream"] is True

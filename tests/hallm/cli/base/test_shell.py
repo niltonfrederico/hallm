@@ -10,13 +10,7 @@ from hallm.cli.base.shell import check
 from hallm.cli.base.shell import fail
 from hallm.cli.base.shell import run
 from hallm.cli.base.shell import run_or_fail
-
-
-def _cp(
-    returncode: int = 0, stdout: str = "", stderr: str = ""
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
-
+from tests.mocks import completed_process as _cp
 
 # ---------------------------------------------------------------------------
 # run

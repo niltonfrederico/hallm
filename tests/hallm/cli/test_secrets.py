@@ -1,7 +1,5 @@
 """Unit tests for the secrets CLI subcommand (apply, prepare, get-certificate)."""
 
-import base64
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,20 +8,9 @@ from typer.testing import CliRunner
 
 from hallm.cli.subcommands.secrets import app
 from hallm.core.settings import settings
+from tests.mocks import completed_process as _cp
 
-runner = CliRunner()
-
-
-def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
-
-
-@pytest.fixture()
-def secrets_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    sd = tmp_path / ".hallm"
-    sd.mkdir()
-    monkeypatch.setattr(settings, "SECRETS_PATH", sd)
-    return sd
+_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.secrets._configure_docker_registry_cert")
 
 
 # ---------------------------------------------------------------------------
@@ -32,13 +19,13 @@ def secrets_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 class TestApply:
-    def test_no_env_files(self, secrets_dir: Path) -> None:
+    def test_no_env_files(self, secrets_dir: Path, runner: CliRunner) -> None:
         result = runner.invoke(app, ["apply"])
         assert result.exit_code == 0
         assert "No .env files found" in result.output
 
     def test_creates_secrets_dir_if_missing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         missing = tmp_path / "new-hallm"
         monkeypatch.setattr(settings, "SECRETS_PATH", missing)
@@ -47,7 +34,7 @@ class TestApply:
         assert missing.exists()
         assert result.exit_code == 0
 
-    def test_named_secret_kubectl_create_fails(self, secrets_dir: Path) -> None:
+    def test_named_secret_kubectl_create_fails(self, secrets_dir: Path, runner: CliRunner) -> None:
         (secrets_dir / "myapp.env").write_text("KEY=val\n")
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="auth error")):
             result = runner.invoke(app, ["apply"])
@@ -55,7 +42,7 @@ class TestApply:
         assert result.exit_code == 1
         assert "Failed to build" in result.output
 
-    def test_named_secret_kubectl_apply_fails(self, secrets_dir: Path) -> None:
+    def test_named_secret_kubectl_apply_fails(self, secrets_dir: Path, runner: CliRunner) -> None:
         (secrets_dir / "myapp.env").write_text("KEY=val\n")
         with patch(
             "subprocess.run",
@@ -69,7 +56,7 @@ class TestApply:
         assert result.exit_code == 1
         assert "kubectl apply" in result.output
 
-    def test_named_secret_success(self, secrets_dir: Path) -> None:
+    def test_named_secret_success(self, secrets_dir: Path, runner: CliRunner) -> None:
         (secrets_dir / "myapp.env").write_text("KEY=val\n")
         with patch(
             "subprocess.run",
@@ -81,7 +68,7 @@ class TestApply:
         assert "myapp.env → Secret 'myapp'" in result.output
         assert "Done" in result.output
 
-    def test_dotenv_maps_to_hallm_env(self, secrets_dir: Path) -> None:
+    def test_dotenv_maps_to_hallm_env(self, secrets_dir: Path, runner: CliRunner) -> None:
         (secrets_dir / ".env").write_text("FOO=bar\n")
         with patch(
             "subprocess.run",
@@ -92,7 +79,7 @@ class TestApply:
         assert result.exit_code == 0
         assert ".env → Secret 'hallm-env'" in result.output
 
-    def test_multiple_secrets_synced(self, secrets_dir: Path) -> None:
+    def test_multiple_secrets_synced(self, secrets_dir: Path, runner: CliRunner) -> None:
         (secrets_dir / "alpha.env").write_text("A=1\n")
         (secrets_dir / "beta.env").write_text("B=2\n")
         (secrets_dir / ".env").write_text("C=3\n")
@@ -115,7 +102,11 @@ class TestApply:
 
 class TestPrepare:
     def test_missing_workspace_env_fails(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        secrets_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
     ) -> None:
         monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
         result = runner.invoke(app, ["prepare"])
@@ -123,7 +114,7 @@ class TestPrepare:
         assert "No .env found" in result.output
 
     def test_creates_secrets_dir_if_missing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         src = tmp_path / ".env"
         src.write_text("ENVIRONMENT=localhost\n")
@@ -137,7 +128,11 @@ class TestPrepare:
         assert missing.exists()
 
     def test_writes_dest_env(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        secrets_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
     ) -> None:
         src = tmp_path / ".env"
         src.write_text("ENVIRONMENT=localhost\n")
@@ -149,46 +144,59 @@ class TestPrepare:
         assert (secrets_dir / ".env").exists()
         assert "Done" in result.output
 
-    def test_rewrites_https_url(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("input_line", "expected_substring", "absent_substring"),
+        [
+            (
+                "GOTIFY_URL=https://gotify.hallm.local",
+                "http://gotify.default.svc.cluster.local",
+                "hallm.local",
+            ),
+            (
+                "RUSTFS_ENDPOINT=http://rustfs.hallm.local:9000",
+                "http://rustfs.default.svc.cluster.local:9000",
+                None,
+            ),
+            (
+                "DATABASE_HOST=postgres.hallm.local",
+                "postgres.default.svc.cluster.local",
+                "hallm.local",
+            ),
+            (
+                "OTEL_ENDPOINT=http://signoz-otel-collector.signoz.svc.cluster.local:4317",
+                "signoz-otel-collector.signoz.svc.cluster.local:4317",
+                None,
+            ),
+        ],
+        ids=["https", "http", "bare-hostname", "preserve-existing-k8s-url"],
+    )
+    def test_url_rewrites(
+        self,
+        tmp_path: Path,
+        secrets_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
+        input_line: str,
+        expected_substring: str,
+        absent_substring: str | None,
     ) -> None:
         src = tmp_path / ".env"
-        src.write_text("GOTIFY_URL=https://gotify.hallm.local\nENVIRONMENT=localhost\n")
+        src.write_text(f"{input_line}\nENVIRONMENT=localhost\n")
         monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
 
         runner.invoke(app, ["prepare"])
 
         out = (secrets_dir / ".env").read_text()
-        assert "http://gotify.default.svc.cluster.local" in out
-        assert "hallm.local" not in out
-
-    def test_rewrites_http_url(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        src = tmp_path / ".env"
-        src.write_text("RUSTFS_ENDPOINT=http://rustfs.hallm.local:9000\nENVIRONMENT=localhost\n")
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
-
-        runner.invoke(app, ["prepare"])
-
-        out = (secrets_dir / ".env").read_text()
-        assert "http://rustfs.default.svc.cluster.local:9000" in out
-
-    def test_rewrites_bare_hostname(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        src = tmp_path / ".env"
-        src.write_text("DATABASE_HOST=postgres.hallm.local\nENVIRONMENT=localhost\n")
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
-
-        runner.invoke(app, ["prepare"])
-
-        out = (secrets_dir / ".env").read_text()
-        assert "postgres.default.svc.cluster.local" in out
-        assert "hallm.local" not in out
+        assert expected_substring in out
+        if absent_substring is not None:
+            assert absent_substring not in out
 
     def test_sets_environment_kubernetes(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        secrets_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        runner: CliRunner,
     ) -> None:
         src = tmp_path / ".env"
         src.write_text("ENVIRONMENT=localhost\nDEBUG=false\n")
@@ -200,44 +208,20 @@ class TestPrepare:
         assert "ENVIRONMENT=kubernetes" in out
         assert "ENVIRONMENT=localhost" not in out
 
-    def test_preserves_existing_k8s_urls(
-        self, tmp_path: Path, secrets_dir: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        src = tmp_path / ".env"
-        src.write_text(
-            "OTEL_ENDPOINT=http://signoz-otel-collector.signoz.svc.cluster.local:4317\n"
-            "ENVIRONMENT=localhost\n"
-        )
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
-
-        runner.invoke(app, ["prepare"])
-
-        out = (secrets_dir / ".env").read_text()
-        assert "signoz-otel-collector.signoz.svc.cluster.local:4317" in out
-
 
 # ---------------------------------------------------------------------------
 # get-certificate
 # ---------------------------------------------------------------------------
 
-_CERT_B64 = base64.b64encode(
-    b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
-).decode()
-_KEY_B64 = base64.b64encode(
-    b"-----BEGIN EC PRIVATE KEY-----\nfake\n-----END EC PRIVATE KEY-----\n"
-).decode()
-
-_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.secrets._configure_docker_registry_cert")
-
 
 class TestGetCertificate:
-    def test_success(self, tmp_path: Path) -> None:
+    def test_success(self, tmp_path: Path, runner: CliRunner, cert_b64: str, key_b64: str) -> None:
         sd = tmp_path / ".hallm"
         sd.mkdir()
         with (
             patch(
                 "subprocess.run",
-                side_effect=[_cp(stdout=_CERT_B64), _cp(stdout=_KEY_B64)],
+                side_effect=[_cp(stdout=cert_b64), _cp(stdout=key_b64)],
             ),
             patch.object(settings, "SECRETS_PATH", sd),
             _PATCH_DOCKER_CERT as mock_cert,
@@ -251,13 +235,13 @@ class TestGetCertificate:
         assert "BEGIN EC PRIVATE KEY" in (sd / "cerberus-ca.key").read_text()
         mock_cert.assert_called_once_with(sd / "cerberus-ca.pem")
 
-    def test_kubectl_fails(self) -> None:
+    def test_kubectl_fails(self, runner: CliRunner) -> None:
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):
             result = runner.invoke(app, ["get-certificate"])
         assert result.exit_code == 1
         assert "cerberus-ca-secret" in result.output
 
-    def test_empty_cert(self, tmp_path: Path) -> None:
+    def test_empty_cert(self, tmp_path: Path, runner: CliRunner) -> None:
         sd = tmp_path / ".hallm"
         sd.mkdir()
         with (
@@ -268,11 +252,11 @@ class TestGetCertificate:
         assert result.exit_code == 1
         assert "empty" in result.output
 
-    def test_empty_key(self, tmp_path: Path) -> None:
+    def test_empty_key(self, tmp_path: Path, runner: CliRunner, cert_b64: str) -> None:
         sd = tmp_path / ".hallm"
         sd.mkdir()
         with (
-            patch("subprocess.run", side_effect=[_cp(stdout=_CERT_B64), _cp(stdout="")]),
+            patch("subprocess.run", side_effect=[_cp(stdout=cert_b64), _cp(stdout="")]),
             patch.object(settings, "SECRETS_PATH", sd),
         ):
             result = runner.invoke(app, ["get-certificate"])

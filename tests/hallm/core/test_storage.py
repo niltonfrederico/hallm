@@ -8,21 +8,9 @@ from unittest.mock import patch
 import pytest
 
 from hallm.core import storage
-
-
-def _make_s3_client(**method_returns: object) -> AsyncMock:
-    client = AsyncMock()
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
-    for name, value in method_returns.items():
-        setattr(client, name, AsyncMock(return_value=value))
-    return client
-
-
-def _patched_session(client: AsyncMock) -> MagicMock:
-    session = MagicMock()
-    session.client.return_value = client
-    return session
+from hallm.core.settings import settings
+from tests.mocks import async_context_mock as _make_s3_client
+from tests.mocks import s3_session as _patched_session
 
 
 def test_resolve_bucket_uses_explicit() -> None:
@@ -108,8 +96,6 @@ class TestPresignedUrl:
             url = await storage.presigned_url("k")
         assert url == "https://example.com/presigned"
         _, kwargs = client.generate_presigned_url.await_args
-        from hallm.core.settings import settings
-
         assert kwargs["ExpiresIn"] == settings.rustfs_presign_expires
 
     async def test_explicit_expires(self) -> None:

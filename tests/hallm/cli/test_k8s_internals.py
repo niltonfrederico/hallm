@@ -10,7 +10,6 @@ Most public commands are covered by test_cluster.py. This file exercises:
 * _configure_docker_registry_cert (lives in secrets)
 """
 
-import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -21,11 +20,7 @@ import typer
 from hallm.cli.subcommands import cluster as mod
 from hallm.cli.subcommands import secrets as secrets_mod
 from hallm.core.settings import settings
-
-
-def _cp(returncode: int = 0, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess([], returncode=returncode, stdout=stdout, stderr=stderr)
-
+from tests.mocks import completed_process as _cp
 
 # ---------------------------------------------------------------------------
 # _manifest
@@ -109,35 +104,27 @@ class TestPreflightChecksList:
 
 
 class TestCgroupMemoryOk:
-    def test_oserror_returns_cannot_read(self) -> None:
-        with patch.object(Path, "read_text", side_effect=OSError("nope")):
+    @pytest.mark.parametrize(
+        ("read_text_kwarg", "expected_ok", "expected_display_substring"),
+        [
+            ({"side_effect": OSError("nope")}, False, "cannot read"),
+            ({"return_value": "max\n"}, True, "unlimited"),
+            ({"return_value": "1073741824\n"}, False, "1024 MB"),  # 1 GB — under 2 GB threshold
+            ({"return_value": "2147483648\n"}, True, "2048 MB"),  # 2 GB — at threshold
+            ({"return_value": "not-a-number\n"}, False, "unreadable"),
+        ],
+        ids=["oserror", "max", "under-threshold", "at-threshold", "unreadable"],
+    )
+    def test_cgroup_memory_outcomes(
+        self,
+        read_text_kwarg: dict[str, object],
+        expected_ok: bool,
+        expected_display_substring: str,
+    ) -> None:
+        with patch.object(Path, "read_text", **read_text_kwarg):
             display, ok = mod._cgroup_memory_ok(1000)
-        assert ok is False
-        assert "cannot read" in display
-
-    def test_max_returns_unlimited(self) -> None:
-        with patch.object(Path, "read_text", return_value="max\n"):
-            display, ok = mod._cgroup_memory_ok(1000)
-        assert display == "unlimited"
-        assert ok is True
-
-    def test_numeric_value_under_threshold(self) -> None:
-        with patch.object(Path, "read_text", return_value="1073741824\n"):  # 1 GB
-            display, ok = mod._cgroup_memory_ok(1000)
-        assert "1024 MB" in display
-        assert ok is False
-
-    def test_numeric_value_at_threshold(self) -> None:
-        with patch.object(Path, "read_text", return_value="2147483648\n"):  # 2 GB
-            display, ok = mod._cgroup_memory_ok(1000)
-        assert "2048 MB" in display
-        assert ok is True
-
-    def test_unreadable_value_returns_unreadable(self) -> None:
-        with patch.object(Path, "read_text", return_value="not-a-number\n"):
-            display, ok = mod._cgroup_memory_ok(1000)
-        assert ok is False
-        assert "unreadable" in display
+        assert ok is expected_ok
+        assert expected_display_substring in display
 
 
 class TestPreflightChecks:
