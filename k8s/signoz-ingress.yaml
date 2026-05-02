@@ -27,3 +27,28 @@ spec:
                 name: signoz
                 port:
                   number: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: signoz-otel-collector
+  namespace: signoz
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [otel.hallm.local]
+      secretName: signoz-otel-collector-tls
+  rules:
+    - host: otel.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: signoz-otel-collector
+                port:
+                  number: 4318
