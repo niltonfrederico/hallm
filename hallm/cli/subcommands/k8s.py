@@ -40,6 +40,7 @@ app = typer.Typer(help="Kubernetes operations.", no_args_is_help=True)
 
 _CLUSTER_NAME = "hallm"
 _DEFAULT_NAMESPACE = "default"
+_UNREGISTRY_HOST = "unregistry.hallm.local"
 _DEVICE_PLUGIN_URL = (
     "https://raw.githubusercontent.com/ROCm/k8s-device-plugin/master/k8s-ds-amdgpu-dp.yaml"
 )
@@ -179,6 +180,15 @@ def _export_cerberus_ca(pem_path: Path, key_path: Path) -> None:
     key_path.write_text(base64.b64decode(_read_cerberus_secret_data("tls.key")).decode())
     typer.echo(f"  Cert → {pem_path}")
     typer.echo(f"  Key  → {key_path}")
+
+
+def _configure_docker_registry_cert(pem_path: Path) -> None:
+    """Copy the Cerberus CA cert into Docker's certs.d so the rootless daemon trusts the registry."""
+    certs_dir = Path.home() / ".config" / "docker" / "certs.d" / _UNREGISTRY_HOST
+    certs_dir.mkdir(parents=True, exist_ok=True)
+    ca_crt = certs_dir / "ca.crt"
+    ca_crt.write_text(pem_path.read_text())
+    typer.echo(f"  Docker registry cert → {ca_crt}")
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +556,9 @@ def setup(
             typer.echo("\n==> Exporting Cerberus CA to ~/.hallm/...")
             _export_cerberus_ca(pem_path, key_path)
 
+        typer.echo("\n==> Trusting Cerberus CA for Docker registry...")
+        _configure_docker_registry_cert(pem_path)
+
         typer.echo("\n==> Syncing secrets to cluster...")
         sync_secrets()
 
@@ -840,6 +853,7 @@ def get_cert() -> None:
     key_path.write_text(base64.b64decode(encoded_key).decode())
     typer.echo(f"Cert → {pem_path}")
     typer.echo(f"Key  → {key_path}")
+    _configure_docker_registry_cert(pem_path)
 
 
 # ---------------------------------------------------------------------------

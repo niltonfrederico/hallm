@@ -95,6 +95,7 @@ def _healthcheck_happy_path_calls() -> list[subprocess.CompletedProcess]:
 _PATCH_MOUNT = patch("hallm.cli.subcommands.k8s._mount_storage")
 _PATCH_PREFLIGHT = patch("hallm.cli.subcommands.k8s._run_preflight")
 _PATCH_SETUP_POSTGRES = patch("hallm.cli.subcommands.k8s._setup_postgres")
+_PATCH_DOCKER_CERT = patch("hallm.cli.subcommands.k8s._configure_docker_registry_cert")
 
 
 class TestSetup:
@@ -110,6 +111,7 @@ class TestSetup:
             patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
+            _PATCH_DOCKER_CERT as mock_cert,
         ):
             result = runner.invoke(app, ["setup"])
 
@@ -117,6 +119,7 @@ class TestSetup:
         assert "Done" in result.output
         assert "Syncing secrets" in result.output
         assert mock.call_count == 9
+        mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
     def test_k3d_create_fails(self, tmp_path: Path) -> None:
         secrets = tmp_path / ".hallm"
@@ -245,6 +248,7 @@ class TestSetup:
             patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
+            _PATCH_DOCKER_CERT,
         ):
             result = runner.invoke(app, ["setup", "--context", "default"])
 
@@ -265,6 +269,7 @@ class TestSetup:
             patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
+            _PATCH_DOCKER_CERT as mock_cert,
         ):
             result = runner.invoke(app, ["setup"])
 
@@ -272,6 +277,7 @@ class TestSetup:
         assert "Restoring" in result.output
         # 4 pre-cerberus (incl. api-ready poll) + webhook wait + create-secret dry-run + apply secret + apply issuer
         assert mock.call_count == 8
+        mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +526,7 @@ class TestGetCert:
                 side_effect=[_cp(stdout=_CERT_B64), _cp(stdout=_KEY_B64)],
             ),
             patch.object(settings, "SECRETS_PATH", sd),
+            _PATCH_DOCKER_CERT as mock_cert,
         ):
             result = runner.invoke(app, ["get-cert"])
 
@@ -528,6 +535,7 @@ class TestGetCert:
         assert "Key  →" in result.output
         assert "BEGIN CERTIFICATE" in (sd / "cerberus-ca.pem").read_text()
         assert "BEGIN EC PRIVATE KEY" in (sd / "cerberus-ca.key").read_text()
+        mock_cert.assert_called_once_with(sd / "cerberus-ca.pem")
 
     def test_get_cert_kubectl_fails(self) -> None:
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="not found")):

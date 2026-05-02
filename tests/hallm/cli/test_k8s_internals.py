@@ -393,6 +393,27 @@ class TestStaticHealthCheckHelpers:
             assert mod._gpu_visible_to_kubernetes() is False
 
 
+class TestConfigureDockerRegistryCert:
+    def test_creates_certs_dir_and_writes_ca_crt(self, tmp_path: Path) -> None:
+        pem = tmp_path / "cerberus-ca.pem"
+        pem.write_text("CERT_CONTENT")
+        with patch("hallm.cli.subcommands.k8s.Path.home", return_value=tmp_path):
+            mod._configure_docker_registry_cert(pem)
+        ca_crt = tmp_path / ".config" / "docker" / "certs.d" / "unregistry.hallm.local" / "ca.crt"
+        assert ca_crt.exists()
+        assert ca_crt.read_text() == "CERT_CONTENT"
+
+    def test_overwrites_existing_cert(self, tmp_path: Path) -> None:
+        pem = tmp_path / "ca.pem"
+        pem.write_text("NEW_CERT")
+        certs_dir = tmp_path / ".config" / "docker" / "certs.d" / "unregistry.hallm.local"
+        certs_dir.mkdir(parents=True)
+        (certs_dir / "ca.crt").write_text("OLD_CERT")
+        with patch("hallm.cli.subcommands.k8s.Path.home", return_value=tmp_path):
+            mod._configure_docker_registry_cert(pem)
+        assert (certs_dir / "ca.crt").read_text() == "NEW_CERT"
+
+
 class TestDnsSmoke:
     def test_apply_failure_returns_false(self) -> None:
         with (

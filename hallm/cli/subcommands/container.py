@@ -43,6 +43,7 @@ def publish(
             str(settings.ROOT_PATH),
         ],
         f"Build failed for {name}",
+        stream=True,
     )
 
     for tag in (tag_latest, tag_ts):
