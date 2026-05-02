@@ -150,7 +150,8 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch(
-                "subprocess.run", side_effect=[_cp(), _cp(), _cp(returncode=1, stderr="dp fail")]
+                "subprocess.run",
+                side_effect=[_cp(), _cp(), _cp(returncode=1, stderr="dp fail"), _cp()],
             ),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
@@ -165,7 +166,7 @@ class TestSetup:
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1)]),
+            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1), _cp()]),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -179,13 +180,33 @@ class TestSetup:
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(), _cp(returncode=1)]),
+            patch(
+                "subprocess.run",
+                side_effect=[_cp(), _cp(), _cp(), _cp(), _cp(returncode=1), _cp()],
+            ),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
 
         assert result.exit_code == 1
         assert "webhook" in result.output
+
+    def test_nuke_on_failure(self, tmp_path: Path) -> None:
+        secrets = tmp_path / ".hallm"
+        secrets.mkdir()
+        with (
+            _PATCH_PREFLIGHT,
+            _PATCH_MOUNT,
+            patch("subprocess.run", return_value=_cp()) as mock,
+            patch("hallm.cli.subcommands.k8s.poll_until", return_value=False),
+            patch.object(settings, "SECRETS_PATH", secrets),
+        ):
+            result = runner.invoke(app, ["setup"])
+
+        assert result.exit_code == 1
+        assert "nuking" in result.output
+        last_cmd = mock.call_args_list[-1][0][0]
+        assert "k3d" in last_cmd and "delete" in last_cmd
 
     def test_cerberus_apply_fails(self, tmp_path: Path) -> None:
         secrets = tmp_path / ".hallm"
@@ -195,7 +216,7 @@ class TestSetup:
             _PATCH_MOUNT,
             patch(
                 "subprocess.run",
-                side_effect=[_cp()] * 5 + [_cp(returncode=1, stderr="cerb")],
+                side_effect=[_cp()] * 5 + [_cp(returncode=1, stderr="cerb"), _cp()],
             ),
             patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
             patch.object(settings, "SECRETS_PATH", secrets),

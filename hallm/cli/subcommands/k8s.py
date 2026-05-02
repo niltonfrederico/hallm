@@ -360,48 +360,53 @@ def setup() -> None:
         "k3d cluster create failed",
     )
 
-    typer.echo("\n==> Waiting for Kubernetes API server to be ready...")
-    api_ready = poll_until(
-        lambda: _run(["kubectl", "get", "nodes"]).returncode == 0,
-        timeout=120,
-        interval=3.0,
-    )
-    if not api_ready:
-        _fail("Kubernetes API server did not become ready in time")
+    try:
+        typer.echo("\n==> Waiting for Kubernetes API server to be ready...")
+        api_ready = poll_until(
+            lambda: _run(["kubectl", "get", "nodes"]).returncode == 0,
+            timeout=120,
+            interval=3.0,
+        )
+        if not api_ready:
+            _fail("Kubernetes API server did not become ready in time")
 
-    typer.echo("\n==> Installing ROCm k8s device plugin...")
-    kubectl.apply_url(_DEVICE_PLUGIN_URL)
+        typer.echo("\n==> Installing ROCm k8s device plugin...")
+        kubectl.apply_url(_DEVICE_PLUGIN_URL)
 
-    typer.echo("\n==> Installing cert-manager...")
-    kubectl.apply_url(_CERT_MANAGER_URL)
+        typer.echo("\n==> Installing cert-manager...")
+        kubectl.apply_url(_CERT_MANAGER_URL)
 
-    typer.echo("\n==> Waiting for cert-manager webhook to be ready...")
-    kubectl.wait(
-        "deploy/cert-manager-webhook",
-        "Available",
-        namespace="cert-manager",
-        timeout="120s",
-    )
+        typer.echo("\n==> Waiting for cert-manager webhook to be ready...")
+        kubectl.wait(
+            "deploy/cert-manager-webhook",
+            "Available",
+            namespace="cert-manager",
+            timeout="120s",
+        )
 
-    pem_path = settings.SECRETS_PATH / "cerberus-ca.pem"
-    key_path = settings.SECRETS_PATH / "cerberus-ca.key"
+        pem_path = settings.SECRETS_PATH / "cerberus-ca.pem"
+        key_path = settings.SECRETS_PATH / "cerberus-ca.key"
 
-    if pem_path.exists() and key_path.exists():
-        typer.echo(f"\n==> Restoring Cerberus CA from {settings.SECRETS_PATH}...")
-        _restore_cerberus_from_files(pem_path, key_path)
-    else:
-        typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
-        kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
-        typer.echo("\n==> Exporting Cerberus CA to ~/.hallm/...")
-        _export_cerberus_ca(pem_path, key_path)
+        if pem_path.exists() and key_path.exists():
+            typer.echo(f"\n==> Restoring Cerberus CA from {settings.SECRETS_PATH}...")
+            _restore_cerberus_from_files(pem_path, key_path)
+        else:
+            typer.echo("\n==> Applying Cerberus PKI (self-signed CA + ClusterIssuers)...")
+            kubectl.apply(_manifest("cerberus.yaml"), label="Cerberus PKI")
+            typer.echo("\n==> Exporting Cerberus CA to ~/.hallm/...")
+            _export_cerberus_ca(pem_path, key_path)
 
-    typer.echo("\n==> Installing SigNoz via Helm...")
-    _install_signoz()
+        typer.echo("\n==> Installing SigNoz via Helm...")
+        _install_signoz()
 
-    typer.echo("\n==> Applying service manifests from k8s/...")
-    _apply_all_service_manifests()
+        typer.echo("\n==> Applying service manifests from k8s/...")
+        _apply_all_service_manifests()
 
-    typer.echo("\n==> Done. Cluster is ready.")
+        typer.echo("\n==> Done. Cluster is ready.")
+    except Exception:
+        typer.echo("\n==> Setup failed — nuking cluster to clean up...")
+        _docker.run(["k3d", "cluster", "delete", _CLUSTER_NAME])
+        raise
 
 
 # ---------------------------------------------------------------------------
