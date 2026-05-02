@@ -5,7 +5,7 @@ The commands fall into two groups:
 * **Cluster lifecycle** — ``preflight``, ``setup``, ``healthcheck``, ``nuke``,
   ``get-cert``: provision, verify, and tear down the local k3d cluster, and
   manage the Cerberus PKI cert/key on the host.
-* **Cluster operations** — ``sync-secrets``, ``remove``, ``seed-heimdall``:
+* **Cluster operations** — ``remove``, ``seed-heimdall``:
   routine ops against an already-running cluster.
 """
 
@@ -30,6 +30,7 @@ from hallm.cli.base.shell import fail as _fail
 from hallm.cli.base.shell import run as _run
 from hallm.cli.base.shell import run_or_fail as _run_or_fail
 from hallm.cli.subcommands import db as _db
+from hallm.cli.subcommands import secrets as _secrets
 from hallm.core.settings import settings
 
 app = typer.Typer(help="Kubernetes operations.", no_args_is_help=True)
@@ -560,7 +561,7 @@ def setup(
         _configure_docker_registry_cert(pem_path)
 
         typer.echo("\n==> Syncing secrets to cluster...")
-        sync_secrets()
+        _secrets._sync_secrets()
 
         typer.echo("\n==> Setting up postgres...")
         _setup_postgres()
@@ -867,49 +868,6 @@ def get_cert() -> None:
 # ---------------------------------------------------------------------------
 # Cluster operations
 # ---------------------------------------------------------------------------
-
-
-@app.command("sync-secrets")
-def sync_secrets() -> None:
-    """Sync ~/.hallm/*.env files → Kubernetes Secrets.
-
-    Each <secret-name>.env file in ~/.hallm/ is applied as a Secret named
-    <secret-name>.  A file named exactly .env is applied as 'hallm-env'.
-    """
-    secrets_dir = settings.SECRETS_PATH
-    secrets_dir.mkdir(parents=True, exist_ok=True)
-
-    sources: list[tuple[str, Path]] = [
-        (env_file.stem, env_file)
-        for env_file in sorted(secrets_dir.glob("*.env"))
-        if env_file.name != ".env"
-    ]
-    hallm_env = secrets_dir / ".env"
-    if hallm_env.exists():
-        sources.append(("hallm-env", hallm_env))
-
-    if not sources:
-        typer.echo(f"No .env files found in {secrets_dir}. Add <secret-name>.env files to sync.")
-        return
-
-    for secret_name, env_file in sources:
-        typer.echo(f"==> Syncing {env_file.name} → Secret '{secret_name}'...")
-        kubectl.apply_from_cmd(
-            f"Secret '{secret_name}'",
-            [
-                "kubectl",
-                "create",
-                "secret",
-                "generic",
-                secret_name,
-                f"--from-env-file={env_file}",
-                "--dry-run=client",
-                "-o",
-                "yaml",
-            ],
-        )
-
-    typer.echo("\nDone.")
 
 
 @app.command()
