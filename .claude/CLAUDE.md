@@ -140,13 +140,12 @@ plus `_check(response)` come for free.
 uv sync                          # install / refresh deps
 uv run hallm                     # show CLI help
 uv run hallm mcp serve           # start the MCP server
-uv run pytest                    # run tests + enforce ≥ 98 % branch coverage
-uv run ruff check --fix && uv run ruff format
-uv run ty check
-uv run pre-commit run --all
+docker compose --profile test run --rm tests              # run unit tests (≥ 98 % branch coverage)
+docker compose --profile test run --rm integration-tests  # run integration tests
+docker compose --profile lint run --rm lint               # run linters and formatters
 uv run tortoise makemigrations   # generate new migration
 uv run tortoise migrate          # apply pending migrations
-docker compose up db -d          # start Postgres only
+docker compose up postgres -d    # start Postgres only
 docker compose up --build        # full stack
 ```
 
@@ -270,7 +269,7 @@ must be tested. Targets:
 
 ## Pull request checklist
 
-- [ ] `uv run pre-commit run --all` passes
-- [ ] `uv run pytest` passes (coverage ≥ 98 %)
+- [ ] `docker compose --profile lint run --rm lint` passes
+- [ ] `docker compose --profile test run --rm tests` passes (coverage ≥ 98 %)
 - [ ] New code has type annotations
 - [ ] No hardcoded secrets or credentials

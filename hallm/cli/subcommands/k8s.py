@@ -449,7 +449,7 @@ def _install_signoz() -> None:
 def _setup_postgres() -> None:
     """Apply the postgres manifest, wait for the deployment to be ready, then bootstrap the DB."""
     kubectl.apply(_manifest("postgres.yaml"), label="postgres")
-    kubectl.wait("deploy/postgres", "Available", namespace=_DEFAULT_NAMESPACE, timeout="120s")
+    kubectl.wait("deploy/postgres", "Available", namespace=_DEFAULT_NAMESPACE, timeout="180s")
     typer.echo("\n==> Running database bootstrap...")
     asyncio.run(_db._run_bootstrap())
 

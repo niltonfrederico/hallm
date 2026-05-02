@@ -90,6 +90,7 @@ class TestBootstrap:
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", tmp_path),
             patch("asyncpg.connect", AsyncMock(side_effect=OSError("refused"))),
+            patch("hallm.cli.subcommands.db.asyncio.sleep", AsyncMock()),
         ):
             result = runner.invoke(app, [])
 

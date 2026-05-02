@@ -36,14 +36,19 @@ async def _run_bootstrap() -> None:
         return
 
     typer.echo("==> Connecting to postgres...")
-    try:
-        conn = await asyncpg.connect(
-            dsn=settings.database_url,
-        )
-    except OSError as exc:
-        fail(f"Cannot reach database at postgres: {exc}")
-    except asyncpg.PostgresError as exc:
-        fail(f"Database connection failed: {exc}")
+    conn: asyncpg.Connection | None = None
+    for attempt in range(20):
+        try:
+            conn = await asyncpg.connect(dsn=settings.database_url)
+            break
+        except OSError:
+            if attempt == 0:
+                typer.echo("  Postgres not ready yet, retrying...")
+            await asyncio.sleep(3)
+        except asyncpg.PostgresError as exc:
+            fail(f"Database connection failed: {exc}")
+    if conn is None:
+        fail("Cannot reach database at postgres after 60s — is the pod ready?")
 
     try:
         for sql_file in sql_files:
