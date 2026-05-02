@@ -112,3 +112,72 @@ spec:
                 name: portainer
                 port:
                   number: 9000
+
+---
+# One-shot Job that registers unregistry as a custom registry in Portainer.
+# Runs after Portainer is deployed; safe to re-apply (skips if already present).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: portainer-registry-init
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init
+          image: curlimages/curl:latest
+          env:
+            - name: PORTAINER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PORTAINER_PASSWORD
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              BASE="http://portainer.default.svc.cluster.local:9000"
+
+              echo "Waiting for Portainer to be ready..."
+              until curl -sf "${BASE}/api/status" > /dev/null; do sleep 3; done
+
+              # Initialize admin on first run; 409 means already initialized — that is fine.
+              HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${BASE}/api/users/admin/init" \
+                -H "Content-Type: application/json" \
+                -d "{\"Username\":\"admin\",\"Password\":\"${PORTAINER_PASSWORD}\"}")
+              if [ "$HTTP" != "200" ] && [ "$HTTP" != "409" ]; then
+                echo "Admin init returned unexpected status ${HTTP}"
+                exit 1
+              fi
+
+              echo "Authenticating..."
+              BODY=$(curl -sf -X POST "${BASE}/api/auth" \
+                -H "Content-Type: application/json" \
+                -d "{\"Username\":\"admin\",\"Password\":\"${PORTAINER_PASSWORD}\"}")
+              TOKEN=$(echo "$BODY" | grep -o '"jwt":"[^"]*"' | cut -d'"' -f4)
+              if [ -z "$TOKEN" ]; then
+                echo "Authentication failed — check that PORTAINER_PASSWORD matches the current admin password"
+                exit 1
+              fi
+
+              echo "Checking whether unregistry is already registered..."
+              REGISTRIES=$(curl -sf "${BASE}/api/registries" -H "Authorization: Bearer ${TOKEN}")
+              if echo "$REGISTRIES" | grep -q '"unregistry"'; then
+                echo "unregistry already configured, nothing to do"
+                exit 0
+              fi
+
+              echo "Registering unregistry..."
+              curl -sf -X POST "${BASE}/api/registries" \
+                -H "Authorization: Bearer ${TOKEN}" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "Name": "unregistry",
+                  "Type": 4,
+                  "URL": "unregistry.kube-system.svc.cluster.local:5000",
+                  "Authentication": false
+                }'
+              echo "unregistry registered successfully"

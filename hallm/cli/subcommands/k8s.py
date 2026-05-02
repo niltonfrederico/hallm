@@ -584,6 +584,14 @@ def setup(
 
 
 @app.command()
+def mount() -> None:
+    """Mount the SSD storage device at the configured mount path."""
+    typer.echo("==> Mounting SSD storage...")
+    _mount_storage()
+    typer.echo("Done.")
+
+
+@app.command()
 def nuke(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
     volumes: bool = typer.Option(
