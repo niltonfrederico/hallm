@@ -226,6 +226,27 @@ class TestSetup:
         assert result.exit_code == 1
         assert "Cerberus PKI" in result.output
 
+    def test_context_override_is_applied(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        secrets = tmp_path / ".hallm"
+        secrets.mkdir()
+        monkeypatch.setattr(settings, "DOCKER_CONTEXT", "hallm")
+        with (
+            _PATCH_PREFLIGHT,
+            _PATCH_MOUNT,
+            patch("subprocess.run", return_value=_cp(stdout=_CERT_B64)),
+            patch("hallm.cli.subcommands.k8s._manifest", return_value="cerberus: yaml"),
+            patch("hallm.cli.subcommands.k8s._install_signoz"),
+            patch("hallm.cli.subcommands.k8s._apply_all_service_manifests"),
+            patch.object(settings, "SECRETS_PATH", secrets),
+        ):
+            result = runner.invoke(app, ["setup", "--context", "default"])
+
+        assert result.exit_code == 0
+        assert "Docker context: default" in result.output
+        assert settings.DOCKER_CONTEXT == "default"
+
     def test_cerberus_restored_from_existing_files(self, tmp_path: Path) -> None:
         secrets = tmp_path / ".hallm"
         secrets.mkdir()
@@ -512,8 +533,8 @@ class TestGetCert:
 class TestPreflight:
     def test_passes_when_all_checks_succeed(self) -> None:
         with patch(
-            "hallm.cli.subcommands.k8s._PREFLIGHT_CHECKS",
-            (("dummy", lambda: (True, None)),),
+            "hallm.cli.subcommands.k8s._preflight_checks",
+            return_value=(("dummy", lambda: (True, None)),),
         ):
             result = runner.invoke(app, ["preflight"])
         assert result.exit_code == 0
@@ -521,8 +542,8 @@ class TestPreflight:
 
     def test_fails_when_any_check_fails(self) -> None:
         with patch(
-            "hallm.cli.subcommands.k8s._PREFLIGHT_CHECKS",
-            (("dummy", lambda: (False, "do this thing")),),
+            "hallm.cli.subcommands.k8s._preflight_checks",
+            return_value=(("dummy", lambda: (False, "do this thing")),),
         ):
             result = runner.invoke(app, ["preflight"])
         assert result.exit_code == 1
@@ -763,3 +784,73 @@ class TestSeedHeimdall:
             result = runner.invoke(app, ["seed-heimdall"])
         assert result.exit_code == 1
         assert "sqlite3 seed failed" in result.output
+
+
+# ---------------------------------------------------------------------------
+# diagnose
+# ---------------------------------------------------------------------------
+
+# Happy-path subprocess calls for diagnose (8 total):
+#   0  docker info --format ...       (stream=True → stdout/stderr=None)
+#   1  docker run alpine echo ok      (basic container)
+#   2  docker run -p 80:80 ...        (port binding)
+#   3  docker run --device /dev/kfd   (GPU device 1)
+#   4  docker run --device /dev/dri/renderD128  (GPU device 2)
+#   5  docker run -v /mnt/hallm ...   (storage mount)
+#   6  k3d version                    (stream=True)
+#   7  k3d cluster list               (stream=True)
+_DIAGNOSE_ALL_OK = [_cp()] * 8
+
+
+class TestDiagnose:
+    def test_all_checks_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+        )
+        with patch("subprocess.run", side_effect=list(_DIAGNOSE_ALL_OK)):
+            result = runner.invoke(app, ["diagnose"])
+        assert result.exit_code == 0
+        assert "All diagnostic checks passed" in result.output
+
+    def test_basic_container_fail_shows_check_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+        )
+        calls = list(_DIAGNOSE_ALL_OK)
+        calls[1] = _cp(returncode=1, stderr="permission denied")
+        with patch("subprocess.run", side_effect=calls):
+            result = runner.invoke(app, ["diagnose"])
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+        assert "permission denied" in result.output
+
+    def test_port_bind_fail_shows_check_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+        )
+        calls = list(_DIAGNOSE_ALL_OK)
+        calls[2] = _cp(returncode=1, stderr="port already in use")
+        with patch("subprocess.run", side_effect=calls):
+            result = runner.invoke(app, ["diagnose"])
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+
+    def test_low_memory_cgroup_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("512 MB", False)
+        )
+        with patch("subprocess.run", side_effect=list(_DIAGNOSE_ALL_OK)):
+            result = runner.invoke(app, ["diagnose"])
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+        assert "512 MB" in result.output
+
+    def test_context_override_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(settings, "DOCKER_CONTEXT", "hallm")
+        monkeypatch.setattr(
+            "hallm.cli.subcommands.k8s._cgroup_memory_ok", lambda _uid: ("unlimited", True)
+        )
+        with patch("subprocess.run", side_effect=list(_DIAGNOSE_ALL_OK)):
+            result = runner.invoke(app, ["diagnose", "--context", "default"])
+        assert result.exit_code == 0
+        assert "default" in result.output

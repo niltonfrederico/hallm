@@ -7,13 +7,18 @@ from typing import NoReturn
 import typer
 
 
-def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def run(
+    cmd: list[str], env: dict[str, str] | None = None, *, stream: bool = False
+) -> subprocess.CompletedProcess[str]:
     """Run a shell command, echoing it first, and return the completed process.
 
     If ``env`` is provided, its entries are merged on top of ``os.environ``
     before being passed to the subprocess. When ``DOCKER_CONTEXT`` is set in
     the override, it is appended to the echoed command line so the routing is
     visible in failure logs.
+
+    Pass ``stream=True`` for long-running commands so their output flows to the
+    terminal in real time instead of being buffered silently.
     """
     suffix = ""
     if env and "DOCKER_CONTEXT" in env:
@@ -21,6 +26,8 @@ def run(cmd: list[str], env: dict[str, str] | None = None) -> subprocess.Complet
     typer.echo(f"+ {' '.join(cmd)}{suffix}")
 
     merged_env = {**os.environ, **env} if env else None
+    if stream:
+        return subprocess.run(cmd, text=True, env=merged_env)
     return subprocess.run(cmd, text=True, capture_output=True, env=merged_env)
 
 
@@ -31,12 +38,13 @@ def fail(message: str) -> NoReturn:
 
 
 def run_or_fail(
-    cmd: list[str], error_msg: str, env: dict[str, str] | None = None
+    cmd: list[str], error_msg: str, env: dict[str, str] | None = None, *, stream: bool = False
 ) -> subprocess.CompletedProcess[str]:
     """Run a command; call fail() with error_msg + stderr if it exits non-zero."""
-    result = run(cmd, env=env)
+    result = run(cmd, env=env, stream=stream)
     if result.returncode != 0:
-        fail(f"{error_msg}:\n{result.stderr}")
+        detail = result.stderr or "(output shown above)"
+        fail(f"{error_msg}:\n{detail}")
     return result
 
 

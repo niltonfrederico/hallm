@@ -39,6 +39,12 @@ class TestRun:
             result = docker.run(["docker", "ps"])
         assert result is cp
 
+    def test_stream_forwarded_to_shell(self) -> None:
+        with patch("hallm.cli.base.shell.run", return_value=_cp()) as mock:
+            docker.run(["docker", "info"], stream=True)
+        _, kwargs = mock.call_args
+        assert kwargs["stream"] is True
+
 
 class TestRunOrFail:
     def test_success_returns_process(self) -> None:
@@ -51,3 +57,9 @@ class TestRunOrFail:
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="boom")):
             with pytest.raises(typer.Exit):
                 docker.run_or_fail(["docker", "ps"], "docker failed")
+
+    def test_stream_forwarded_to_shell(self) -> None:
+        with patch("hallm.cli.base.shell.run_or_fail", return_value=_cp()) as mock:
+            docker.run_or_fail(["k3d", "cluster", "create"], "failed", stream=True)
+        _, kwargs = mock.call_args
+        assert kwargs["stream"] is True

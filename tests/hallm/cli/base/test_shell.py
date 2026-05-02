@@ -50,6 +50,11 @@ class TestRun:
             run(["ls"])
         mock.assert_called_once_with(["ls"], text=True, capture_output=True, env=None)
 
+    def test_stream_true_omits_capture_output(self) -> None:
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            run(["k3d", "cluster", "create"], stream=True)
+        mock.assert_called_once_with(["k3d", "cluster", "create"], text=True, env=None)
+
 
 # ---------------------------------------------------------------------------
 # fail
@@ -137,3 +142,10 @@ class TestRunOrFail:
         err = capsys.readouterr().err
         assert "the error message" in err
         assert "detail here" in err
+
+    def test_stream_failure_shows_output_above(self, capsys: pytest.CaptureFixture[str]) -> None:
+        cp = subprocess.CompletedProcess([], returncode=1, stdout=None, stderr=None)
+        with patch("subprocess.run", return_value=cp):
+            with pytest.raises(typer.Exit):
+                run_or_fail(["k3d", "cluster", "create"], "cluster create failed", stream=True)
+        assert "output shown above" in capsys.readouterr().err

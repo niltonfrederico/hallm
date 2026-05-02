@@ -21,11 +21,13 @@ def context_env() -> dict[str, str]:
     return {"DOCKER_CONTEXT": settings.DOCKER_CONTEXT}
 
 
-def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+def run(cmd: list[str], *, stream: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a command pinned to the hallm Docker context."""
-    return shell.run(cmd, env=context_env())
+    return shell.run(cmd, env=context_env(), stream=stream)
 
 
-def run_or_fail(cmd: list[str], error_msg: str) -> subprocess.CompletedProcess[str]:
+def run_or_fail(
+    cmd: list[str], error_msg: str, *, stream: bool = False
+) -> subprocess.CompletedProcess[str]:
     """Run a command pinned to the hallm Docker context; fail on non-zero exit."""
-    return shell.run_or_fail(cmd, error_msg, env=context_env())
+    return shell.run_or_fail(cmd, error_msg, env=context_env(), stream=stream)
