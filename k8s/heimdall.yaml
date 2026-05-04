@@ -45,6 +45,33 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: HEIMDALL_TZ
+            - name: DB_CONNECTION
+              value: pgsql
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_DB_PORT
+            - name: DB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_DB_DATABASE
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_DB_PASSWORD
           ports:
             - containerPort: 80
             - containerPort: 443

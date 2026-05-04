@@ -34,6 +34,7 @@ spec:
               VARS='$HALLM_DB_NAME $HALLM_DB_USER $HALLM_DB_PASSWORD
                     $GLITCHTIP_DB_NAME $GLITCHTIP_DB_USER $GLITCHTIP_DB_PASSWORD
                     $PAPERLESS_DB_NAME $PAPERLESS_DB_USER $PAPERLESS_DB_PASSWORD
+                    $HEIMDALL_DB_NAME $HEIMDALL_DB_USER $HEIMDALL_DB_PASSWORD
                     $SIGNOZ_MONITOR_USER $SIGNOZ_MONITOR_PASSWORD'
               for f in /bootstrap/*.sql; do
                 echo "==> Running $f"
@@ -70,6 +71,10 @@ spec:
               value: glitchtip
             - name: GLITCHTIP_DB_USER
               value: glitchtip
+            - name: HEIMDALL_DB_NAME
+              value: heimdall
+            - name: HEIMDALL_DB_USER
+              value: heimdall
             - name: PAPERLESS_DB_NAME
               value: paperless
             - name: PAPERLESS_DB_USER
@@ -97,6 +102,11 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: POSTGRES_PASSWORD
+            - name: HEIMDALL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: HEIMDALL_DB_PASSWORD
           volumeMounts:
             - name: bootstrap-sql
               mountPath: /bootstrap
