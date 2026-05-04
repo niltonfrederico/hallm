@@ -33,9 +33,15 @@ spec:
           image: glitchtip/glitchtip:latest
           env:
             - name: DATABASE_URL
-              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres.default.svc.cluster.local:5432/glitchtip"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: GLITCHTIP_DATABASE_URL
             - name: REDIS_URL
-              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/1"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: GLITCHTIP_VALKEY_URL
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -45,21 +51,6 @@ spec:
               value: "https://glitchtip.hallm.local"
             - name: PORT
               value: "8000"
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: hallm-env
-                  key: POSTGRES_USER
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: hallm-env
-                  key: POSTGRES_PASSWORD
-            - name: VALKEY_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: hallm-env
-                  key: VALKEY_PASSWORD
           ports:
             - containerPort: 8000
           resources:

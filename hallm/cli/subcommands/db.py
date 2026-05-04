@@ -18,15 +18,26 @@ _SERVICE_DATABASES: tuple[str, ...] = ("glitchtip", "paperless")
 
 
 async def _ensure_service_databases(conn: asyncpg.Connection) -> None:
-    owner = settings.database["user"]
     existing = {row["datname"] for row in await conn.fetch("SELECT datname FROM pg_database")}
+    dsn_base = settings.database_url.rsplit("/", 1)[0]
     for db_name in _SERVICE_DATABASES:
         if db_name in existing:
-            typer.echo(f"  - {db_name}: already exists")
-            continue
-        typer.echo(f"  - {db_name}: creating")
-        # CREATE DATABASE cannot run in a transaction — asyncpg's execute() is fine here.
-        await conn.execute(f'CREATE DATABASE "{db_name}" OWNER "{owner}"')
+            typer.echo(f"  - {db_name}: already exists, ensuring grants")
+        else:
+            typer.echo(f"  - {db_name}: creating")
+            # CREATE DATABASE cannot run in a transaction — asyncpg's execute() is fine here.
+            await conn.execute(f'CREATE DATABASE "{db_name}"')
+
+        # Database-level CREATE lets the role install trusted extensions (e.g. pg_trgm).
+        await conn.execute(f'GRANT CREATE ON DATABASE "{db_name}" TO "{db_name}"')
+
+        # Schema-level grants let the role create tables / sequences in public.
+        svc_conn = await asyncpg.connect(dsn=f"{dsn_base}/{db_name}")
+        try:
+            await svc_conn.execute(f'GRANT ALL ON SCHEMA public TO "{db_name}"')
+            await svc_conn.execute(f'ALTER SCHEMA public OWNER TO "{db_name}"')
+        finally:
+            await svc_conn.close()
 
 
 async def _run_bootstrap() -> None:
