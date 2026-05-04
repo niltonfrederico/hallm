@@ -39,6 +39,8 @@ spec:
                   key: OTS_HOST
             - name: SSL
               value: "true"
+            - name: AUTHENTICATION_MODE
+              value: "none"
           ports:
             - containerPort: 3000
           resources:
