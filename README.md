@@ -103,7 +103,7 @@ uv run hallm container publish <name>   # build + push a Docker image
 
 | Namespace | Commands |
 | --- | --- |
-| `hallm k8s` | `preflight`, `setup`, `healthcheck`, `nuke`, `get-cert`, `sync-secrets`, `remove`, `seed-heimdall` |
+| `hallm k8s` | `preflight`, `setup`, `healthcheck`, `nuke`, `get-cert`, `sync-secrets`, `remove` |
 | `hallm db` | `bootstrap` |
 | `hallm mcp` | `serve` |
 | `hallm container` | `publish` |

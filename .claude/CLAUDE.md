@@ -154,7 +154,7 @@ docker compose up --build        # full stack
 The repo includes a `k8s/` directory with Kubernetes manifests for the local
 dev environment. The CLI namespace is `hallm k8s` — it covers both cluster
 lifecycle (preflight/setup/healthcheck/nuke/get-cert) and cluster operations
-(sync-secrets/remove/seed-heimdall).
+(sync-secrets/remove).
 
 ### Cluster overview
 
@@ -199,7 +199,6 @@ uv run hallm k8s get-cert     # save Cerberus CA cert+key to ~/.hallm/
 # Cluster operations
 uv run hallm k8s sync-secrets    # apply ~/.hallm/*.env as Kubernetes Secrets
 uv run hallm k8s remove <name>   # delete a manifest + sweep app-labelled resources
-uv run hallm k8s seed-heimdall   # populate Heimdall with the hallm app catalogue
 ```
 
 ### k8s/ file layout

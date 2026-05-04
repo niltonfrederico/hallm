@@ -35,11 +35,6 @@ data:
         endpoint: valkey.default.svc.cluster.local:6379
         password: ${env:VALKEY_PASSWORD}
         collection_interval: 30s
-      httpcheck/heimdall:
-        collection_interval: 60s
-        targets:
-          - endpoint: http://heimdall.default.svc.cluster.local:80
-            method: GET
       httpcheck/gotify:
         collection_interval: 60s
         targets:
@@ -111,11 +106,6 @@ data:
           - {key: service.name, value: valkey, action: upsert}
           - {key: deployment.environment, value: localhost, action: upsert}
           - {key: signoz.source, value: hallm-extras, action: upsert}
-      resource/heimdall:
-        attributes:
-          - {key: service.name, value: heimdall, action: upsert}
-          - {key: deployment.environment, value: localhost, action: upsert}
-          - {key: signoz.source, value: hallm-extras, action: upsert}
       resource/gotify:
         attributes:
           - {key: service.name, value: gotify, action: upsert}
@@ -176,10 +166,6 @@ data:
         metrics/valkey:
           receivers: [redis]
           processors: [resource/valkey, batch]
-          exporters: [otlp]
-        metrics/heimdall:
-          receivers: [httpcheck/heimdall]
-          processors: [resource/heimdall, batch]
           exporters: [otlp]
         metrics/gotify:
           receivers: [httpcheck/gotify]

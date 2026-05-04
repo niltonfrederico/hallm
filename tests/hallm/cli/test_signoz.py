@@ -213,7 +213,6 @@ def test_signoz_init_sql_present_in_bootstrap_dir() -> None:
 _EXPECTED_SIGNOZ_SERVICES: tuple[str, ...] = (
     "postgres",
     "valkey",
-    "heimdall",
     "gotify",
     "paperless",
     "glitchtip",
