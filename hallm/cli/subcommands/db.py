@@ -35,7 +35,7 @@ async def _run_bootstrap() -> None:
         typer.echo("No SQL files found in bootstrap directory.")
         return
 
-    typer.echo("==> Connecting to postgres...")
+    typer.echo(f"==> Connecting to postgres {settings.database_url}...")
     conn: asyncpg.Connection | None = None
     for attempt in range(20):
         try:

@@ -10,6 +10,7 @@ from hallm.cli.subcommands import db
 from hallm.cli.subcommands import mcp
 from hallm.cli.subcommands import secrets
 from hallm.cli.subcommands import seed
+from hallm.cli.subcommands import signoz
 from hallm.core.observability import init_observability
 from hallm.core.settings import settings
 
@@ -20,11 +21,12 @@ app.add_typer(cluster.app, name="cluster")
 app.add_typer(secrets.app, name="secrets")
 app.add_typer(container.app, name="container")
 app.add_typer(seed.app, name="seed")
+app.add_typer(signoz.app, name="signoz")
 
 
 @app.callback()
 def _callback(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand not in {"cluster", "seed"}:
+    if ctx.invoked_subcommand not in {"cluster", "seed", "signoz"}:
         init_observability()
 
 

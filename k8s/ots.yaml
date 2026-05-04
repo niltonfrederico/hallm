@@ -23,7 +23,10 @@ spec:
                   name: hallm-env
                   key: VALKEY_PASSWORD
             - name: REDIS_URL
-              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/3"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: OTS_VALKEY_URL
             - name: SECRET
               valueFrom:
                 secretKeyRef:

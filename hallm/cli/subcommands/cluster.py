@@ -25,6 +25,7 @@ from hallm.cli.base.shell import run as _run
 from hallm.cli.base.shell import run_or_fail as _run_or_fail
 from hallm.cli.subcommands import db as _db
 from hallm.cli.subcommands import secrets as _secrets
+from hallm.cli.subcommands import signoz as _signoz
 from hallm.core.settings import settings
 
 app = typer.Typer(help="Cluster lifecycle operations.", no_args_is_help=True)
@@ -42,16 +43,16 @@ _DEVICE_PLUGIN_URL = (
 _CERT_MANAGER_URL = (
     "https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"
 )
-_SIGNOZ_HELM_REPO = "https://charts.signoz.io"
-_SIGNOZ_NAMESPACE = "signoz"
 # Manifests applied/managed outside the generic apply loop.
 # registries.yaml is a k3s registry config file, not a Kubernetes manifest.
+# signoz-{ingress,extras}.yaml are owned by `hallm signoz bootstrap`.
 _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
     {
         "cerberus.yaml",
         "postgres.yaml",
         "registries.yaml",
         "signoz-ingress.yaml",
+        "signoz-extras.yaml",
     }
 )
 
@@ -337,37 +338,6 @@ def mount() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _install_signoz() -> None:
-    """Install / upgrade the SigNoz Helm release in the signoz namespace."""
-    add_repo = _run(["helm", "repo", "add", "signoz", _SIGNOZ_HELM_REPO])
-    if add_repo.returncode != 0 and "already exists" not in add_repo.stderr:
-        _fail(f"helm repo add signoz failed:\n{add_repo.stderr}")
-
-    _run_or_fail(["helm", "repo", "update"], "helm repo update failed")
-
-    _run(
-        ["kubectl", "create", "namespace", _SIGNOZ_NAMESPACE]
-    )  # idempotent: ignore "already exists"
-
-    values_file = settings.K8S_PATH / "helm" / "signoz-values.yaml"
-    _run_or_fail(
-        [
-            "helm",
-            "upgrade",
-            "--install",
-            "signoz",
-            "signoz/signoz",
-            "-n",
-            _SIGNOZ_NAMESPACE,
-            "-f",
-            str(values_file),
-        ],
-        "helm install signoz failed",
-    )
-
-    kubectl.apply(_manifest("signoz-ingress.yaml"), label="SigNoz Ingress")
-
-
 def _setup_postgres() -> None:
     """Apply the postgres manifest, wait for the deployment to be ready, then bootstrap the DB."""
     kubectl.apply(_manifest("postgres.yaml"), label="postgres")
@@ -489,11 +459,11 @@ def setup(
         typer.echo("\n==> Setting up postgres...")
         _setup_postgres()
 
-        typer.echo("\n==> Installing SigNoz via Helm...")
-        _install_signoz()
-
         typer.echo("\n==> Applying service manifests from k8s/...")
         _apply_all_service_manifests()
+
+        typer.echo("\n==> Bootstrapping SigNoz...")
+        _signoz._run_bootstrap()
 
         typer.echo("\n==> Done. Cluster is ready.")
     except Exception:

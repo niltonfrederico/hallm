@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
-import typer
 
 from hallm.cli.subcommands import cluster as mod
 from hallm.cli.subcommands import secrets as secrets_mod
@@ -241,45 +240,8 @@ class TestPreflightChecks:
 # ---------------------------------------------------------------------------
 
 
-class TestInstallSignoz:
-    def test_install_when_repo_missing(self) -> None:
-        with (
-            patch(
-                "subprocess.run",
-                side_effect=[
-                    _cp(),  # helm repo add (success)
-                    _cp(),  # helm repo update
-                    _cp(),  # kubectl create namespace
-                    _cp(),  # helm upgrade --install
-                    _cp(),  # kubectl apply ingress
-                ],
-            ),
-            patch("hallm.cli.subcommands.cluster._manifest", return_value="ingress: yes"),
-        ):
-            mod._install_signoz()
-
-    def test_install_repo_already_exists_is_not_fatal(self) -> None:
-        with (
-            patch(
-                "subprocess.run",
-                side_effect=[
-                    _cp(returncode=1, stderr="repo already exists"),
-                    _cp(),
-                    _cp(),
-                    _cp(),
-                    _cp(),
-                ],
-            ),
-            patch("hallm.cli.subcommands.cluster._manifest", return_value="ingress: yes"),
-        ):
-            mod._install_signoz()
-
-    def test_install_repo_add_other_error_fails(self) -> None:
-        with (
-            patch("subprocess.run", return_value=_cp(returncode=1, stderr="permission denied")),
-            pytest.raises(typer.Exit),
-        ):
-            mod._install_signoz()
+# Coverage for SigNoz install internals lives in tests/hallm/cli/test_signoz.py
+# now that the helm release lifecycle moved to hallm.cli.subcommands.signoz.
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +255,7 @@ class TestApplyAllServiceManifests:
             "cerberus.yaml",
             "registries.yaml",
             "signoz-ingress.yaml",
+            "signoz-extras.yaml",
             "ollama.yaml",
         ):
             (tmp_path / name).write_text(f"kind: Test  # {name}")

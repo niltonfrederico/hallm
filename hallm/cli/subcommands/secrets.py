@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 import typer
+from dotenv import dotenv_values
 
 from hallm.cli.base import kubectl
 from hallm.cli.base.shell import fail as _fail
@@ -88,7 +89,15 @@ app = typer.Typer(help="Kubernetes secrets management.", no_args_is_help=True)
 # then bare hostnames name.hallm.local with name.default.svc.cluster.local.
 _URL_RE = re.compile(r"https?://([a-z0-9-]+)\.hallm\.local")
 _HOST_RE = re.compile(r"([a-z0-9-]+)\.hallm\.local")
-_ENV_RE = re.compile(r"^(ENVIRONMENT=).*$", re.MULTILINE)
+# Rewrites k3d external ports to in-cluster Service ports, but only when they
+# appear immediately after a cluster hostname to avoid false positives.
+_CLUSTER_PORT_RE = re.compile(r"(\.default\.svc\.cluster\.local):(10379|10432)")
+_CLUSTER_PORT_MAP = {"10379": "6379", "10432": "5432"}
+# Key-level overrides applied after per-value rewrites.
+_CLUSTER_OVERRIDES: dict[str, str] = {
+    "POSTGRES_PORT": "5432",
+    "ENVIRONMENT": "kubernetes",
+}
 
 
 def _sync_secrets() -> None:
@@ -156,13 +165,20 @@ def prepare() -> None:
     dest = settings.SECRETS_PATH / ".env"
     settings.SECRETS_PATH.mkdir(parents=True, exist_ok=True)
 
-    text = src.read_text()
+    values = dotenv_values(src)
 
-    text = _URL_RE.sub(r"http://\1.default.svc.cluster.local", text)
-    text = _HOST_RE.sub(r"\1.default.svc.cluster.local", text)
-    text = _ENV_RE.sub(r"\1kubernetes", text)
+    result: dict[str, str] = {}
+    for key, value in values.items():
+        value = value or ""
+        value = _URL_RE.sub(r"http://\1.default.svc.cluster.local", value)
+        value = _HOST_RE.sub(r"\1.default.svc.cluster.local", value)
+        value = _CLUSTER_PORT_RE.sub(
+            lambda m: f"{m.group(1)}:{_CLUSTER_PORT_MAP[m.group(2)]}", value
+        )
+        result[key] = value
+    result |= _CLUSTER_OVERRIDES
 
-    dest.write_text(text)
+    dest.write_text("\n".join(f"{k}={v}" for k, v in result.items()) + "\n")
     typer.echo(f"  {src} → {dest}")
     typer.echo("Done.")
 

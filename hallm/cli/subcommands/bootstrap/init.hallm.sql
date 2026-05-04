@@ -8,6 +8,14 @@ BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'hallm') THEN
         CREATE ROLE hallm WITH LOGIN PASSWORD '##POSTGRES_PASSWORD##';
     END IF;
+
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'paperless') THEN
+        CREATE ROLE paperless WITH LOGIN PASSWORD '##PAPERLESS_DB_PASSWORD##';
+    END IF;
+
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'glitchtip') THEN
+        CREATE ROLE glitchtip WITH LOGIN PASSWORD '##GLITCHTIP_DB_PASSWORD##';
+    END IF;
 END
 $$;
 

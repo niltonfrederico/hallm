@@ -160,28 +160,40 @@ spec:
                   name: hallm-env
                   key: PAPERLESS_SECRET_KEY
             - name: PAPERLESS_DBHOST
-              value: "postgres.default.svc.cluster.local"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: DATABASE_HOST
             - name: PAPERLESS_DBPORT
-              value: "5432"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PORT
             - name: PAPERLESS_DBNAME
-              value: "paperless"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PAPERLESS_DB_NAME
             - name: PAPERLESS_DBUSER
               valueFrom:
                 secretKeyRef:
                   name: hallm-env
-                  key: POSTGRES_USER
+                  key: PAPERLESS_DB_USER
             - name: PAPERLESS_DBPASS
               valueFrom:
                 secretKeyRef:
                   name: hallm-env
-                  key: POSTGRES_PASSWORD
+                  key: PAPERLESS_DB_PASSWORD
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: hallm-env
                   key: VALKEY_PASSWORD
             - name: PAPERLESS_REDIS
-              value: "redis://:$(VALKEY_PASSWORD)@valkey.default.svc.cluster.local:6379/2"
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PAPERLESS_VALKEY_URL
             - name: PAPERLESS_TIKA_ENABLED
               value: "1"
             - name: PAPERLESS_TIKA_ENDPOINT

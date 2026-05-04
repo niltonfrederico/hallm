@@ -68,6 +68,9 @@ class Settings:
 
     # Glitchtip (Sentry-compatible error tracking)
     glitchtip_dsn: str = env.str("GLITCHTIP_DSN", "")
+    # Fraction of OTEL spans to forward to Glitchtip via SentrySpanProcessor.
+    # 1.0 captures every span (fine on the dev cluster); lower in production.
+    sentry_traces_sample_rate: float = env.float("SENTRY_TRACES_SAMPLE_RATE", 1.0)
 
     # SigNoz / OpenTelemetry
     otel_endpoint: str = env.str(
@@ -99,7 +102,7 @@ class Settings:
         if driver:
             db_driver += f"+{driver}"
 
-        host = db["host"] if self.environment == "localhost" else db["production_host"]
+        host = db["host"]
         return f"{db_driver}://{db['user']}:{db['password']}@{host}:{db['port']}/{db['name']}"
 
     @cached_property

@@ -1,11 +1,17 @@
 """Data seeding commands for the hallm local dev environment."""
 
+import logging
 import subprocess
 
+import sentry_sdk
 import typer
+from opentelemetry import _logs
+from opentelemetry import trace
 
 from hallm.cli.base.poll import poll_until
 from hallm.cli.base.shell import fail as _fail
+from hallm.core.observability import init_observability
+from hallm.core.settings import settings
 
 app = typer.Typer(help="Data seeding operations.", no_args_is_help=True)
 
@@ -100,3 +106,52 @@ def heimdall(
         _fail(f"sqlite3 seed failed:\n{result.stderr}")
 
     typer.echo(f"\nSeeded {len(_HEIMDALL_APPS)} apps. Visit https://heimdall.hallm.local")
+
+
+@app.command()
+def otel(
+    service_name: str = typer.Option(
+        "hallm-seed",
+        "--service-name",
+        help="service.name resource attribute on the emitted span and log.",
+    ),
+    message: str = typer.Option(
+        "hallm seed otel smoke test",
+        "--message",
+        help="Message body for both the OTEL log and the Glitchtip event.",
+    ),
+) -> None:
+    """Emit one OTEL trace + log + Glitchtip event so both backends can confirm wiring.
+
+    The trace fans out via SentrySpanProcessor (Glitchtip) + BatchSpanProcessor
+    (SigNoz). The log goes through the OTLP log pipeline (SigNoz). The Sentry
+    capture_message lands in Glitchtip directly.
+    """
+    if not settings.glitchtip_dsn and not settings.otel_endpoint:
+        _fail("Neither GLITCHTIP_DSN nor OTEL_ENDPOINT is set — nothing to send.")
+
+    settings.otel_service_name = service_name
+    init_observability()
+
+    typer.echo(f"==> Emitting trace+log as service.name={service_name!r}...")
+    tracer = trace.get_tracer("hallm.seed.otel")
+    logger = logging.getLogger("hallm.seed.otel")
+    logger.setLevel(logging.INFO)
+
+    with tracer.start_as_current_span("hallm-seed-otel-smoke") as span:
+        span.set_attribute("seed.message", message)
+        span.set_attribute("seed.service_name", service_name)
+        logger.info(message, extra={"seed.message": message})
+        if settings.glitchtip_dsn:
+            sentry_sdk.capture_message(message, level="info")
+
+    for provider in (trace.get_tracer_provider(), _logs.get_logger_provider()):
+        if hasattr(provider, "force_flush"):
+            provider.force_flush()
+
+    if settings.glitchtip_dsn:
+        client = sentry_sdk.Hub.current.client
+        if client is not None:
+            client.flush(timeout=5.0)
+
+    typer.echo("Done. Check SigNoz and Glitchtip for the new event.")

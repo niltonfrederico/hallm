@@ -1,0 +1,259 @@
+# Auxiliary OpenTelemetry collector that scrapes things the SigNoz k8s-infra
+# agents don't cover: the Postgres database, the Valkey cache, and HTTP
+# liveness for every other hallm service.  Metrics are forwarded over OTLP
+# to signoz-otel-collector.signoz.svc.cluster.local:4317 where SigNoz stores
+# and visualises them.
+#
+# Each receiver exports under its own `service.name` resource attribute so
+# every deployment appears as a distinct service in the SigNoz "Services"
+# tab — set via per-target pipelines instead of a global resource processor.
+#
+# Lives in `default` so it can read POSTGRES_PASSWORD/VALKEY_PASSWORD from the
+# existing hallm-env Secret and reach the in-cluster services directly.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signoz-extras-collector-config
+  namespace: default
+data:
+  config.yaml: |
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+
+    receivers:
+      postgresql:
+        endpoint: postgres.default.svc.cluster.local:5432
+        transport: tcp
+        username: signoz_monitor
+        password: ${env:POSTGRES_PASSWORD}
+        databases: [hallm, glitchtip, paperless]
+        collection_interval: 60s
+        tls:
+          insecure: true
+      redis:
+        endpoint: valkey.default.svc.cluster.local:6379
+        password: ${env:VALKEY_PASSWORD}
+        collection_interval: 30s
+      httpcheck/heimdall:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://heimdall.default.svc.cluster.local:80
+            method: GET
+      httpcheck/gotify:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://gotify.default.svc.cluster.local:80
+            method: GET
+      httpcheck/paperless:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://paperless.default.svc.cluster.local:80
+            method: GET
+      httpcheck/glitchtip:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://glitchtip.default.svc.cluster.local:80
+            method: GET
+      httpcheck/ots:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://ots.default.svc.cluster.local:80
+            method: GET
+      httpcheck/openclaw:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://openclaw.default.svc.cluster.local:80
+            method: GET
+      httpcheck/activitywatch:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://activitywatch.default.svc.cluster.local:80
+            method: GET
+      httpcheck/rustfs:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://rustfs.default.svc.cluster.local:9001
+            method: GET
+      httpcheck/ollama:
+        collection_interval: 60s
+        targets:
+          - endpoint: http://ollama.default.svc.cluster.local:11434
+            method: GET
+
+    processors:
+      batch:
+        send_batch_size: 1024
+        timeout: 10s
+      resource/postgres:
+        attributes:
+          - {key: service.name, value: postgres, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/valkey:
+        attributes:
+          - {key: service.name, value: valkey, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/heimdall:
+        attributes:
+          - {key: service.name, value: heimdall, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/gotify:
+        attributes:
+          - {key: service.name, value: gotify, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/paperless:
+        attributes:
+          - {key: service.name, value: paperless, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/glitchtip:
+        attributes:
+          - {key: service.name, value: glitchtip, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/ots:
+        attributes:
+          - {key: service.name, value: ots, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/openclaw:
+        attributes:
+          - {key: service.name, value: openclaw, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/activitywatch:
+        attributes:
+          - {key: service.name, value: activitywatch, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/rustfs:
+        attributes:
+          - {key: service.name, value: rustfs, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+      resource/ollama:
+        attributes:
+          - {key: service.name, value: ollama, action: upsert}
+          - {key: deployment.environment, value: localhost, action: upsert}
+          - {key: signoz.source, value: hallm-extras, action: upsert}
+
+    exporters:
+      otlp:
+        endpoint: signoz-otel-collector.signoz.svc.cluster.local:4317
+        tls:
+          insecure: true
+
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        metrics/postgres:
+          receivers: [postgresql]
+          processors: [resource/postgres, batch]
+          exporters: [otlp]
+        metrics/valkey:
+          receivers: [redis]
+          processors: [resource/valkey, batch]
+          exporters: [otlp]
+        metrics/heimdall:
+          receivers: [httpcheck/heimdall]
+          processors: [resource/heimdall, batch]
+          exporters: [otlp]
+        metrics/gotify:
+          receivers: [httpcheck/gotify]
+          processors: [resource/gotify, batch]
+          exporters: [otlp]
+        metrics/paperless:
+          receivers: [httpcheck/paperless]
+          processors: [resource/paperless, batch]
+          exporters: [otlp]
+        metrics/glitchtip:
+          receivers: [httpcheck/glitchtip]
+          processors: [resource/glitchtip, batch]
+          exporters: [otlp]
+        metrics/ots:
+          receivers: [httpcheck/ots]
+          processors: [resource/ots, batch]
+          exporters: [otlp]
+        metrics/openclaw:
+          receivers: [httpcheck/openclaw]
+          processors: [resource/openclaw, batch]
+          exporters: [otlp]
+        metrics/activitywatch:
+          receivers: [httpcheck/activitywatch]
+          processors: [resource/activitywatch, batch]
+          exporters: [otlp]
+        metrics/rustfs:
+          receivers: [httpcheck/rustfs]
+          processors: [resource/rustfs, batch]
+          exporters: [otlp]
+        metrics/ollama:
+          receivers: [httpcheck/ollama]
+          processors: [resource/ollama, batch]
+          exporters: [otlp]
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signoz-extras-collector
+  namespace: default
+  labels:
+    app: signoz-extras-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: signoz-extras-collector
+  template:
+    metadata:
+      labels:
+        app: signoz-extras-collector
+    spec:
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.151.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PASSWORD
+            - name: VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: VALKEY_PASSWORD
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: signoz-extras-collector-config
