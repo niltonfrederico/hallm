@@ -150,8 +150,6 @@ def otel(
             provider.force_flush()
 
     if settings.glitchtip_dsn:
-        client = sentry_sdk.Hub.current.client
-        if client is not None:
-            client.flush(timeout=5.0)
+        sentry_sdk.flush(timeout=5.0)
 
     typer.echo("Done. Check SigNoz and Glitchtip for the new event.")

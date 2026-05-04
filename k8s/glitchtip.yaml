@@ -51,6 +51,8 @@ spec:
               value: "https://glitchtip.hallm.local"
             - name: PORT
               value: "8000"
+            - name: GLITCHTIP_ENABLE_MCP
+              value: "true"
           ports:
             - containerPort: 8000
           resources:
@@ -128,6 +130,8 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: VALKEY_PASSWORD
+            - name: GLITCHTIP_ENABLE_MCP
+              value: "true"
           resources:
             requests:
               cpu: "100m"

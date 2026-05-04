@@ -54,24 +54,32 @@ def _init_sentry(*, otel_enabled: bool) -> None:
         init_kwargs["traces_sample_rate"] = settings.sentry_traces_sample_rate
     else:
         init_kwargs["traces_sample_rate"] = 0.0
+    ca_cert = settings.SECRETS_PATH / "cerberus-ca.pem"
+    if ca_cert.exists():
+        init_kwargs["ca_certs"] = str(ca_cert)
     sentry_sdk.init(**init_kwargs)
 
 
-def _otlp_exporter_kwargs() -> dict[str, str]:
-    """Shared kwargs for OTLP HTTP exporters: endpoint + Cerberus CA if HTTPS."""
-    kwargs: dict[str, str] = {"endpoint": settings.otel_endpoint}
+def _otlp_exporter_kwargs(signal_path: str) -> dict[str, str]:
+    """Shared kwargs for OTLP HTTP exporters: endpoint + Cerberus CA if HTTPS.
+
+    The SDK (>=1.12) does NOT auto-append signal paths to custom endpoints,
+    so callers must pass the correct path (e.g. "v1/traces", "v1/logs").
+    """
+    base = settings.otel_endpoint.rstrip("/")
+    kwargs: dict[str, str] = {"endpoint": f"{base}/{signal_path}"}
     ca_cert = settings.SECRETS_PATH / "cerberus-ca.pem"
-    if settings.otel_endpoint.startswith("https://") and ca_cert.exists():
+    if base.startswith("https://") and ca_cert.exists():
         kwargs["certificate_file"] = str(ca_cert)
     return kwargs
 
 
 def _build_otlp_exporter() -> OTLPSpanExporter:
-    return OTLPSpanExporter(**_otlp_exporter_kwargs())
+    return OTLPSpanExporter(**_otlp_exporter_kwargs("v1/traces"))
 
 
 def _build_otlp_log_exporter() -> OTLPLogExporter:
-    return OTLPLogExporter(**_otlp_exporter_kwargs())
+    return OTLPLogExporter(**_otlp_exporter_kwargs("v1/logs"))
 
 
 def _instrument_libraries() -> None:

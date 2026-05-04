@@ -76,7 +76,7 @@ class Settings:
 
     # SigNoz / OpenTelemetry
     otel_endpoint: str = env.str(
-        "OTEL_ENDPOINT", "http://signoz-otel-collector.signoz.svc.cluster.local:4317"
+        "OTEL_ENDPOINT", "http://signoz-otel-collector.signoz.svc.cluster.local:4318"
     )
     otel_service_name: str = env.str("OTEL_SERVICE_NAME", "hallm")
 
