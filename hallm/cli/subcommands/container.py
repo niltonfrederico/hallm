@@ -102,7 +102,7 @@ def deploy(
 @app.command()
 def remove(
     name: str = typer.Argument(
-        ..., help="Manifest name in k8s/ (without .yaml), e.g. 'ollama', 'postgres'."
+        ..., help="Manifest name in k8s/ (without .yaml), e.g. 'postgres', 'valkey'."
     ),
     namespace: str = typer.Option(
         _DEFAULT_NAMESPACE, "--namespace", "-n", help="Kubernetes namespace."

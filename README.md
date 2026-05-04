@@ -166,7 +166,7 @@ flowchart TD
 | TLS | cert-manager + **Cerberus** self-signed CA |
 | | `cerberus-ca` ClusterIssuer |
 | DNS | `*.hallm.local` → localhost via dnsmasq |
-| Namespaces | `ollama`, `signoz` |
+| Namespaces | `signoz` |
 
 ### Using TLS
 

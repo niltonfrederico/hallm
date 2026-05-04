@@ -55,11 +55,6 @@ data:
         targets:
           - endpoint: http://ots.default.svc.cluster.local:80
             method: GET
-      httpcheck/openclaw:
-        collection_interval: 60s
-        targets:
-          - endpoint: http://openclaw.default.svc.cluster.local:80
-            method: GET
       httpcheck/activitywatch:
         collection_interval: 60s
         targets:
@@ -70,19 +65,6 @@ data:
         targets:
           - endpoint: http://rustfs.default.svc.cluster.local:9001
             method: GET
-      httpcheck/ollama:
-        collection_interval: 60s
-        targets:
-          - endpoint: http://ollama.ollama.svc.cluster.local:11434
-            method: GET
-      prometheus/ollama:
-        config:
-          scrape_configs:
-            - job_name: ollama
-              scrape_interval: 30s
-              static_configs:
-                - targets: [ollama.ollama.svc.cluster.local:11434]
-              metrics_path: /metrics
       prometheus/rustfs:
         config:
           scrape_configs:
@@ -126,11 +108,6 @@ data:
           - {key: service.name, value: ots, action: upsert}
           - {key: deployment.environment, value: localhost, action: upsert}
           - {key: signoz.source, value: hallm-extras, action: upsert}
-      resource/openclaw:
-        attributes:
-          - {key: service.name, value: openclaw, action: upsert}
-          - {key: deployment.environment, value: localhost, action: upsert}
-          - {key: signoz.source, value: hallm-extras, action: upsert}
       resource/activitywatch:
         attributes:
           - {key: service.name, value: activitywatch, action: upsert}
@@ -139,11 +116,6 @@ data:
       resource/rustfs:
         attributes:
           - {key: service.name, value: rustfs, action: upsert}
-          - {key: deployment.environment, value: localhost, action: upsert}
-          - {key: signoz.source, value: hallm-extras, action: upsert}
-      resource/ollama:
-        attributes:
-          - {key: service.name, value: ollama, action: upsert}
           - {key: deployment.environment, value: localhost, action: upsert}
           - {key: signoz.source, value: hallm-extras, action: upsert}
 
@@ -183,10 +155,6 @@ data:
           receivers: [httpcheck/ots]
           processors: [resource/ots, batch]
           exporters: [otlp]
-        metrics/openclaw:
-          receivers: [httpcheck/openclaw]
-          processors: [resource/openclaw, batch]
-          exporters: [otlp]
         metrics/activitywatch:
           receivers: [httpcheck/activitywatch]
           processors: [resource/activitywatch, batch]
@@ -198,14 +166,6 @@ data:
         metrics/rustfs-prometheus:
           receivers: [prometheus/rustfs]
           processors: [resource/rustfs, batch]
-          exporters: [otlp]
-        metrics/ollama:
-          receivers: [httpcheck/ollama]
-          processors: [resource/ollama, batch]
-          exporters: [otlp]
-        metrics/ollama-prometheus:
-          receivers: [prometheus/ollama]
-          processors: [resource/ollama, batch]
           exporters: [otlp]
 
 ---

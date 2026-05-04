@@ -167,7 +167,7 @@ lifecycle (preflight/setup/healthcheck/nuke/get-cert) and cluster operations
 | Ingress | Traefik on ports 80 / 443, exposed via k3d loadbalancer |
 | TLS | cert-manager + Cerberus self-signed CA (`cerberus-ca` ClusterIssuer) |
 | DNS | `*.hallm.local` resolves to localhost via dnsmasq |
-| Namespaces | `ollama`, `signoz` |
+| Namespaces | `signoz` |
 
 ### Rootless Docker prerequisites
 
@@ -206,7 +206,7 @@ uv run hallm k8s remove <name>   # delete a manifest + sweep app-labelled resour
 ```text
 k8s/
 ├── cerberus.yaml         # Cerberus PKI: bootstrap ClusterIssuer, root CA, CA ClusterIssuer
-├── <service>.yaml        # One file per deployable service (postgres, ollama, ...)
+├── <service>.yaml        # One file per deployable service (postgres, valkey, ...)
 ├── helm/
 │   └── signoz-values.yaml
 └── test/
