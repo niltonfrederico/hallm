@@ -1,6 +1,5 @@
 """Data seeding commands for the hallm local dev environment."""
 
-import logging
 import subprocess
 
 import sentry_sdk
@@ -10,6 +9,7 @@ from opentelemetry import trace
 
 from hallm.cli.base.poll import poll_until
 from hallm.cli.base.shell import fail as _fail
+from hallm.core.log import get_logger
 from hallm.core.observability import init_observability
 from hallm.core.settings import settings
 
@@ -133,17 +133,17 @@ def otel(
     settings.otel_service_name = service_name
     init_observability()
 
-    typer.echo(f"==> Emitting trace+log as service.name={service_name!r}...")
     tracer = trace.get_tracer("hallm.seed.otel")
-    logger = logging.getLogger("hallm.seed.otel")
-    logger.setLevel(logging.INFO)
+    logger = get_logger("hallm.seed.otel")
 
-    with tracer.start_as_current_span("hallm-seed-otel-smoke") as span:
+    logger.info("emitting trace+log", extra={"seed.service_name": service_name})
+    with tracer.start_as_current_span("hallm.seed.otel") as span:
         span.set_attribute("seed.message", message)
         span.set_attribute("seed.service_name", service_name)
         logger.info(message, extra={"seed.message": message})
         if settings.glitchtip_dsn:
             sentry_sdk.capture_message(message, level="info")
+    logger.info("smoke test complete — check SigNoz and Glitchtip for the new event")
 
     for provider in (trace.get_tracer_provider(), _logs.get_logger_provider()):
         if hasattr(provider, "force_flush"):
@@ -151,5 +151,3 @@ def otel(
 
     if settings.glitchtip_dsn:
         sentry_sdk.flush(timeout=5.0)
-
-    typer.echo("Done. Check SigNoz and Glitchtip for the new event.")

@@ -97,9 +97,8 @@ class TestOtel:
             result = runner.invoke(app, ["otel", "--service-name", "x", "--message", "hello"])
 
         assert result.exit_code == 0, result.output
-        assert "service.name='x'" in result.output
         init_obs.assert_called_once()
-        tracer.start_as_current_span.assert_called_once_with("hallm-seed-otel-smoke")
+        tracer.start_as_current_span.assert_called_once_with("hallm.seed.otel")
         capture.assert_called_once_with("hello", level="info")
         provider.force_flush.assert_called_once()
         log_provider.force_flush.assert_called_once()

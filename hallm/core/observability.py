@@ -5,15 +5,24 @@ When both backends are configured, OTEL spans are fanned out to **both**:
   - Glitchtip, via sentry-sdk's SentrySpanProcessor (which serialises spans
     into the Sentry envelope protocol).
 
-The SentryPropagator becomes the global text map so trace context survives
-across HTTP boundaries between hallm services and either backend.
+Every span is stamped with a stable ``correlation.id`` (UUID per process) and
+the ``deployment.environment`` resource attribute mirrors ``settings.environment``
+(e.g. ``localhost`` or ``cluster``).  The ``cli.command`` resource attribute is
+derived from sys.argv so traces are immediately identifiable by invocation.
+
+The W3C TraceContext propagator (traceparent header) is always installed as the
+global text-map. When Glitchtip is also enabled, SentryPropagator is composed
+alongside it so trace context survives across both backends simultaneously.
 """
 
 import logging
+import sys
+import uuid
 
 import sentry_sdk
 from opentelemetry import _logs
 from opentelemetry import trace
+from opentelemetry.context import Context as _OtelContext
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.asyncpg import AsyncPGInstrumentor
@@ -23,18 +32,56 @@ from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.starlette import StarletteInstrumentor
 from opentelemetry.propagate import set_global_textmap
+from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs import LoggingHandler
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace import Span as _SdkSpan
+from opentelemetry.sdk.trace import SpanProcessor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from sentry_sdk.integrations.logging import LoggingIntegration
 from sentry_sdk.integrations.opentelemetry import SentryPropagator
 from sentry_sdk.integrations.opentelemetry import SentrySpanProcessor
 
 from hallm.core.settings import settings
 
 _initialized = False
+
+
+class _CorrelationIdSpanProcessor(SpanProcessor):
+    """Stamps every span with a stable correlation.id for this process run."""
+
+    def __init__(self) -> None:
+        self._id = str(uuid.uuid4())
+
+    def on_start(self, span: _SdkSpan, parent_context: _OtelContext | None = None) -> None:
+        span.set_attribute("correlation.id", self._id)
+
+    def on_end(self, span: ReadableSpan) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        pass
+
+    def force_flush(self, timeout_millis: int = 30_000) -> bool:
+        return True
+
+
+def _cli_command_from_argv() -> str:
+    """Build ``hallm.sub.command`` notation from sys.argv for CLI telemetry.
+
+    Stops at the first flag argument so option values are not included.
+    """
+    parts: list[str] = []
+    for arg in sys.argv[1:]:
+        if arg.startswith("-"):
+            break
+        parts.append(arg)
+    return ".".join(["hallm", *parts])
 
 
 def _init_sentry(*, otel_enabled: bool) -> None:
@@ -48,6 +95,10 @@ def _init_sentry(*, otel_enabled: bool) -> None:
     init_kwargs: dict[str, object] = {
         "dsn": settings.glitchtip_dsn,
         "environment": settings.environment,
+        # enable_logs makes Python log records appear in Glitchtip's Logs section
+        # as first-class structured log objects (sentry-sdk >= 2.x feature).
+        "enable_logs": True,
+        "integrations": [LoggingIntegration(level=logging.INFO, event_level=logging.ERROR)],
     }
     if otel_enabled:
         init_kwargs["instrumenter"] = "otel"
@@ -114,12 +165,23 @@ def init_observability() -> None:
     if not otel_enabled:
         return
 
-    resource = Resource.create({"service.name": settings.otel_service_name})
+    resource = Resource.create(
+        {
+            "service.name": settings.otel_service_name,
+            "deployment.environment": settings.environment,
+            "cli.command": _cli_command_from_argv(),
+        }
+    )
     provider = TracerProvider(resource=resource)
+    provider.add_span_processor(_CorrelationIdSpanProcessor())
     provider.add_span_processor(BatchSpanProcessor(_build_otlp_exporter()))
     if glitchtip_enabled:
         provider.add_span_processor(SentrySpanProcessor())
-        set_global_textmap(SentryPropagator())
+        set_global_textmap(
+            CompositePropagator([TraceContextTextMapPropagator(), SentryPropagator()])
+        )
+    else:
+        set_global_textmap(TraceContextTextMapPropagator())
     trace.set_tracer_provider(provider)
 
     log_provider = LoggerProvider(resource=resource)
