@@ -98,6 +98,9 @@ _CLUSTER_OVERRIDES: dict[str, str] = {
     "POSTGRES_PORT": "5432",
     "ENVIRONMENT": "kubernetes",
 }
+# Keys whose values must pass through `prepare` unchanged — e.g. public
+# hostnames that the app uses to build user-facing URLs.
+_PREPARE_SKIP_KEYS: frozenset[str] = frozenset({"OTS_HOST"})
 
 
 def _sync_secrets() -> None:
@@ -170,11 +173,12 @@ def prepare() -> None:
     result: dict[str, str] = {}
     for key, value in values.items():
         value = value or ""
-        value = _URL_RE.sub(r"http://\1.default.svc.cluster.local", value)
-        value = _HOST_RE.sub(r"\1.default.svc.cluster.local", value)
-        value = _CLUSTER_PORT_RE.sub(
-            lambda m: f"{m.group(1)}:{_CLUSTER_PORT_MAP[m.group(2)]}", value
-        )
+        if key not in _PREPARE_SKIP_KEYS:
+            value = _URL_RE.sub(r"http://\1.default.svc.cluster.local", value)
+            value = _HOST_RE.sub(r"\1.default.svc.cluster.local", value)
+            value = _CLUSTER_PORT_RE.sub(
+                lambda m: f"{m.group(1)}:{_CLUSTER_PORT_MAP[m.group(2)]}", value
+            )
         result[key] = value
     result |= _CLUSTER_OVERRIDES
 
