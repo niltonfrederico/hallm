@@ -51,6 +51,29 @@ uv run tortoise migrate
 uv run hallm mcp serve
 ```
 
+### Commit tooling
+
+Commits must follow [Conventional Commits](https://www.conventionalcommits.org/)
+with a body of at most 5 non-empty lines. Rules are defined in
+[`commitlint.config.js`](commitlint.config.js) and enforced by a `commit-msg`
+pre-commit hook. [`opencommit`](https://github.com/di-sukharev/opencommit)
+generates messages that comply with those rules.
+
+```bash
+# Install the CLIs (once, on your machine — not project deps)
+brew install commitlint opencommit
+
+# Install the commit-msg hook (in addition to the regular pre-commit hook)
+uv run pre-commit install --hook-type commit-msg
+
+# Wire opencommit to this repo's commitlint config (once per checkout)
+oco config set OCO_PROMPT_MODULE=@commitlint
+oco commitlint force
+
+# Stage your changes, then let opencommit draft the message
+git add -A && oco
+```
+
 ### Testing
 
 ```bash
