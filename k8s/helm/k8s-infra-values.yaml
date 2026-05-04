@@ -1,0 +1,74 @@
+# Values for the standalone signoz/k8s-infra Helm chart.
+# Applied via `helm upgrade --install k8s-infra signoz/k8s-infra -n signoz -f k8s/helm/k8s-infra-values.yaml`
+# from `hallm signoz bootstrap`.
+#
+# As of signoz chart >= 0.55, the k8s-infra subchart was extracted into its
+# own release; nesting it under `k8s-infra:` in signoz-values.yaml is silently
+# ignored. This file provides the agent config at the top level instead.
+#
+# The DaemonSet (otelAgent) tails /var/log/pods, scrapes kubelet stats, and
+# reads /proc + /sys for hostmetrics on each node. The Deployment
+# (otelDeployment) collects cluster-wide events, deployments, and pod metadata.
+# Together they give the SigNoz Infrastructure tab and per-pod logs flowing
+# into the Logs tab — the `app` label is promoted to `service.name` so each
+# Deployment surfaces as its own service.
+
+otelCollectorEndpoint: signoz-otel-collector.signoz.svc.cluster.local:4317
+otelInsecure: true
+
+presets:
+  otlpExporter:
+    enabled: true
+  loggingExporter:
+    enabled: false
+  kubernetesAttributes:
+    enabled: true
+    extractLabels:
+      - tag_name: service.name
+        key: app
+        from: pod
+      - tag_name: service.version
+        key: app.kubernetes.io/version
+        from: pod
+  kubeletMetrics:
+    enabled: true
+  hostMetrics:
+    enabled: true
+  clusterMetrics:
+    enabled: true
+  kubernetesEvents:
+    enabled: true
+  logsCollection:
+    enabled: true
+    startAt: end
+    includeFilePath: true
+    includeFileName: false
+    blacklist:
+      enabled: true
+      signozLogs: true
+      namespaces:
+        - kube-system
+      pods: []
+      containers: []
+      additionalExclude: []
+    operators:
+      - id: container-parser
+        type: container
+
+otelAgent:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 100Mi
+    limits:
+      cpu: 200m
+      memory: 300Mi
+
+otelDeployment:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 100Mi
+    limits:
+      cpu: 200m
+      memory: 300Mi

@@ -1,10 +1,14 @@
 """SigNoz observability bootstrap.
 
-Installs the SigNoz Helm release (frontend + ClickHouse + main OTEL collector
-+ k8s-infra cluster/agent receivers) and applies the auxiliary OTEL collector
-that scrapes Postgres, Valkey, and HTTP liveness for the rest of the hallm
-stack.  Driven by ``hallm signoz bootstrap``; also called from
-``hallm cluster setup``.
+Installs two Helm releases — the SigNoz core (frontend + ClickHouse + main
+OTEL collector) and the standalone k8s-infra agents (cluster receiver +
+node DaemonSet for hostmetrics, kubeletstats, and pod log collection) —
+then applies the auxiliary OTEL collector that scrapes Postgres, Valkey,
+and HTTP liveness for the rest of the hallm stack.  Driven by
+``hallm signoz bootstrap``; also called from ``hallm cluster setup``.
+
+The k8s-infra chart is a separate release because signoz/signoz >= 0.55
+no longer bundles it as a subchart.
 """
 
 import typer
@@ -20,6 +24,7 @@ app = typer.Typer(help="SigNoz observability operations.", no_args_is_help=True)
 _SIGNOZ_HELM_REPO = "https://charts.signoz.io"
 _SIGNOZ_NAMESPACE = "signoz"
 _DEFAULT_NAMESPACE = "default"
+_K8S_INFRA_RELEASE = "k8s-infra"
 
 
 def _manifest(name: str) -> str:
@@ -54,6 +59,29 @@ def _install_helm_release() -> None:
     )
 
 
+def _install_k8s_infra_release() -> None:
+    """Install / upgrade the standalone k8s-infra chart.
+
+    Deploys the cluster receiver + node DaemonSet that feed the SigNoz
+    Infrastructure tab and tail /var/log/pods into the Logs tab.
+    """
+    values_file = settings.K8S_PATH / "helm" / "k8s-infra-values.yaml"
+    _run_or_fail(
+        [
+            "helm",
+            "upgrade",
+            "--install",
+            _K8S_INFRA_RELEASE,
+            "signoz/k8s-infra",
+            "-n",
+            _SIGNOZ_NAMESPACE,
+            "-f",
+            str(values_file),
+        ],
+        "helm install k8s-infra failed",
+    )
+
+
 def _wait_for_collector_ready() -> None:
     """Block until the main signoz-otel-collector Deployment is Available.
 
@@ -85,6 +113,9 @@ def _run_bootstrap() -> None:
     typer.echo("\n==> Waiting for signoz-otel-collector to become Available...")
     _wait_for_collector_ready()
 
+    typer.echo("\n==> Installing k8s-infra agents (cluster receiver + node DaemonSet)...")
+    _install_k8s_infra_release()
+
     typer.echo("\n==> Applying auxiliary collector + Ingress...")
     _apply_extras()
 
@@ -95,9 +126,10 @@ def _run_bootstrap() -> None:
 def bootstrap() -> None:
     """Install SigNoz and make it aware of the cluster, deployments, databases, and services.
 
-    Runs helm upgrade --install for the SigNoz chart (which bundles the
-    k8s-infra subchart for cluster/node/pod metrics), waits for the main
-    OTEL collector to be ready, then applies the auxiliary collector that
-    scrapes Postgres / Valkey / HTTP endpoints.
+    Runs helm upgrade --install for the SigNoz core chart and the
+    standalone k8s-infra chart (cluster/node/pod metrics + pod log
+    collection), waits for the main OTEL collector to be ready, then
+    applies the auxiliary collector that scrapes Postgres / Valkey /
+    HTTP endpoints.
     """
     _run_bootstrap()
