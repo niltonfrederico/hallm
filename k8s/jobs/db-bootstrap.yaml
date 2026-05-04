@@ -1,0 +1,107 @@
+---
+# Bootstrap the postgres cluster: create per-deployment roles, databases,
+# and grants. The SQL files come from a ConfigMap (`hallm-bootstrap-sql`)
+# that is regenerated from hallm/cli/subcommands/bootstrap/*.sql by
+# `hallm db bootstrap` before this Job is applied.
+#
+# Substitution is done by GNU `envsubst` with an explicit variable list
+# so dollar-quoted PL/pgSQL blocks ($$...$$) survive untouched.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-bootstrap
+  namespace: default
+  labels:
+    app: db-bootstrap
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: db-bootstrap
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: postgres:17-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -euo pipefail
+              apk add --no-cache gettext >/dev/null
+              VARS='$HALLM_DB_NAME $HALLM_DB_USER $HALLM_DB_PASSWORD
+                    $GLITCHTIP_DB_NAME $GLITCHTIP_DB_USER $GLITCHTIP_DB_PASSWORD
+                    $PAPERLESS_DB_NAME $PAPERLESS_DB_USER $PAPERLESS_DB_PASSWORD
+                    $SIGNOZ_MONITOR_USER $SIGNOZ_MONITOR_PASSWORD'
+              for f in /bootstrap/*.sql; do
+                echo "==> Running $f"
+                envsubst "$VARS" < "$f" | psql --set=ON_ERROR_STOP=1 --no-psqlrc
+              done
+              echo "==> Bootstrap complete."
+          env:
+            # --- psql connection (admin) ---
+            - name: PGHOST
+              value: postgres
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PASSWORD
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_DB
+            # --- non-secret template vars (DB + role names) ---
+            - name: HALLM_DB_NAME
+              value: hallm
+            - name: HALLM_DB_USER
+              value: hallm
+            - name: GLITCHTIP_DB_NAME
+              value: glitchtip
+            - name: GLITCHTIP_DB_USER
+              value: glitchtip
+            - name: PAPERLESS_DB_NAME
+              value: paperless
+            - name: PAPERLESS_DB_USER
+              value: paperless
+            - name: SIGNOZ_MONITOR_USER
+              value: signoz_monitor
+            # --- secret template vars (passwords) ---
+            - name: HALLM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PASSWORD
+            - name: GLITCHTIP_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: GLITCHTIP_DB_PASSWORD
+            - name: PAPERLESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: PAPERLESS_DB_PASSWORD
+            - name: SIGNOZ_MONITOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: bootstrap-sql
+              mountPath: /bootstrap
+              readOnly: true
+      volumes:
+        - name: bootstrap-sql
+          configMap:
+            name: hallm-bootstrap-sql

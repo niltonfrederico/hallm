@@ -4,7 +4,6 @@ Covers the full lifecycle of the k3d cluster:
 ``preflight``, ``diagnose``, ``mount``, ``setup``, ``nuke``, ``healthcheck``.
 """
 
-import asyncio
 import json
 import os
 import socket
@@ -346,7 +345,7 @@ def _setup_postgres() -> None:
     kubectl.apply(_manifest("postgres.yaml"), label="postgres")
     kubectl.wait("deploy/postgres", "Available", namespace=_DEFAULT_NAMESPACE, timeout="180s")
     typer.echo("\n==> Running database bootstrap...")
-    asyncio.run(_db._run_bootstrap())
+    _db._run_bootstrap()
 
 
 def _apply_all_service_manifests() -> None:

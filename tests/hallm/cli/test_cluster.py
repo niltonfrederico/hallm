@@ -3,7 +3,6 @@
 import json
 import urllib.error
 from pathlib import Path
-from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -286,10 +285,7 @@ class TestSetupPostgres:
         (k8s_dir / "postgres.yaml").write_text("apiVersion: v1")
         with (
             patch("subprocess.run", return_value=_cp()) as mock,
-            patch(
-                "hallm.cli.subcommands.db._run_bootstrap",
-                new_callable=AsyncMock,
-            ),
+            patch("hallm.cli.subcommands.db._run_bootstrap"),
         ):
             _setup_postgres()
 

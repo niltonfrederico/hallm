@@ -197,7 +197,9 @@ def test_signoz_init_sql_present_in_bootstrap_dir() -> None:
     init_sql = settings.CLI_PATH / "subcommands" / "bootstrap" / "init.signoz.sql"
     assert init_sql.exists()
     body = init_sql.read_text()
-    assert "signoz_monitor" in body
+    # The literal role name is injected via envsubst from the Job env (set in
+    # k8s/jobs/db-bootstrap.yaml) — the SQL template references it by var name.
+    assert "${SIGNOZ_MONITOR_USER}" in body
     assert "pg_monitor" in body
 
 

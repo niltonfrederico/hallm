@@ -1,91 +1,108 @@
 """Database subcommands."""
 
-import asyncio
-
-import asyncpg
 import typer
 
+from hallm.cli.base import kubectl
 from hallm.cli.base.shell import fail
-from hallm.cli.base.template import render as _render
+from hallm.cli.base.shell import run
+from hallm.cli.base.shell import run_or_fail
 from hallm.core.settings import settings
 
 app = typer.Typer(help="Database operations.", no_args_is_help=True)
 
 _BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "bootstrap"
-
-# Per-service databases co-hosted on the shared postgres pod.
-_SERVICE_DATABASES: tuple[str, ...] = ("glitchtip", "paperless")
-
-
-async def _ensure_service_databases(conn: asyncpg.Connection) -> None:
-    existing = {row["datname"] for row in await conn.fetch("SELECT datname FROM pg_database")}
-    dsn_base = settings.database_url.rsplit("/", 1)[0]
-    for db_name in _SERVICE_DATABASES:
-        if db_name in existing:
-            typer.echo(f"  - {db_name}: already exists, ensuring grants")
-        else:
-            typer.echo(f"  - {db_name}: creating")
-            # CREATE DATABASE cannot run in a transaction — asyncpg's execute() is fine here.
-            await conn.execute(f'CREATE DATABASE "{db_name}"')
-
-        # Database-level CREATE lets the role install trusted extensions (e.g. pg_trgm).
-        await conn.execute(f'GRANT CREATE ON DATABASE "{db_name}" TO "{db_name}"')
-
-        # Schema-level grants let the role create tables / sequences in public.
-        svc_conn = await asyncpg.connect(dsn=f"{dsn_base}/{db_name}")
-        try:
-            await svc_conn.execute(f'GRANT ALL ON SCHEMA public TO "{db_name}"')
-            await svc_conn.execute(f'ALTER SCHEMA public OWNER TO "{db_name}"')
-        finally:
-            await svc_conn.close()
+_JOB_MANIFEST = settings.K8S_PATH / "jobs" / "db-bootstrap.yaml"
+_CONFIGMAP_NAME = "hallm-bootstrap-sql"
+_JOB_NAME = "db-bootstrap"
+_NAMESPACE = "default"
 
 
-async def _run_bootstrap() -> None:
+def _sync_bootstrap_configmap() -> None:
+    """Recreate the ConfigMap that ships *.sql files into the Job.
+
+    The ConfigMap holds non-secret SQL templates only — passwords are
+    injected at runtime via env vars from the `hallm-env` Secret.
+    """
     sql_files = sorted(_BOOTSTRAP_PATH.glob("*.sql"))
     if not sql_files:
-        typer.echo("No SQL files found in bootstrap directory.")
-        return
+        fail(f"No SQL files found in {_BOOTSTRAP_PATH}.")
 
-    typer.echo(f"==> Connecting to postgres {settings.database_url}...")
-    conn: asyncpg.Connection | None = None
-    for attempt in range(20):
-        try:
-            conn = await asyncpg.connect(dsn=settings.database_url)
-            break
-        except OSError:
-            if attempt == 0:
-                typer.echo("  Postgres not ready yet, retrying...")
-            await asyncio.sleep(3)
-        except asyncpg.PostgresError as exc:
-            fail(f"Database connection failed: {exc}")
-    if conn is None:
-        fail("Cannot reach database at postgres after 60s — is the pod ready?")
+    create_cmd = [
+        "kubectl",
+        "create",
+        "configmap",
+        _CONFIGMAP_NAME,
+        "--namespace",
+        _NAMESPACE,
+        "--dry-run=client",
+        "-o",
+        "yaml",
+    ]
+    for f in sql_files:
+        create_cmd += ["--from-file", f"{f.name}={f}"]
 
-    try:
-        for sql_file in sql_files:
-            typer.echo(f"==> Running {sql_file.name}...")
-            try:
-                sql = _render(
-                    sql_file.read_text(),
-                    {
-                        "POSTGRES_PASSWORD": settings.database["password"],
-                        "PAPERLESS_DB_PASSWORD": settings.paperless_db_password,
-                        "GLITCHTIP_DB_PASSWORD": settings.glitchtip_db_password,
-                    },
-                )
-            except ValueError as exc:
-                fail(str(exc))
-            await conn.execute(sql)
+    kubectl.apply_from_cmd("hallm-bootstrap-sql configmap", create_cmd)
 
-        typer.echo("==> Ensuring per-service databases...")
-        await _ensure_service_databases(conn)
-    finally:
-        await conn.close()
+
+def _delete_prior_job() -> None:
+    """Jobs are immutable on most fields — wipe any prior run first."""
+    run(
+        [
+            "kubectl",
+            "delete",
+            "job",
+            _JOB_NAME,
+            "--namespace",
+            _NAMESPACE,
+            "--ignore-not-found",
+        ]
+    )
+
+
+def _run_bootstrap() -> None:
+    """Trigger the in-cluster db-bootstrap Job and surface its logs."""
+    typer.echo(f"==> Syncing ConfigMap '{_CONFIGMAP_NAME}'...")
+    _sync_bootstrap_configmap()
+
+    typer.echo(f"==> Removing any prior '{_JOB_NAME}' Job...")
+    _delete_prior_job()
+
+    typer.echo(f"==> Applying {_JOB_MANIFEST.relative_to(settings.ROOT_PATH)}...")
+    kubectl.apply(_JOB_MANIFEST.read_text(), label=_JOB_NAME)
+
+    typer.echo("==> Waiting for Job to complete...")
+    wait_cmd = [
+        "kubectl",
+        "wait",
+        "--for=condition=complete",
+        f"job/{_JOB_NAME}",
+        "--namespace",
+        _NAMESPACE,
+        "--timeout=180s",
+    ]
+    result = run(wait_cmd)
+
+    typer.echo("==> Bootstrap Job logs:")
+    run_or_fail(
+        [
+            "kubectl",
+            "logs",
+            f"job/{_JOB_NAME}",
+            "--namespace",
+            _NAMESPACE,
+            "--tail=-1",
+        ],
+        "Failed to read bootstrap Job logs",
+        stream=True,
+    )
+
+    if result.returncode != 0:
+        fail(f"db-bootstrap Job did not complete within timeout (see logs above):\n{result.stderr}")
 
     typer.echo("\nBootstrap complete.")
 
 
 @app.command()
 def bootstrap() -> None:
-    """Bootstrap the database (create schemas, roles, and initial grants)."""
-    asyncio.run(_run_bootstrap())
+    """Bootstrap the database (create roles, databases, and initial grants)."""
+    _run_bootstrap()
