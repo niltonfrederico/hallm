@@ -24,6 +24,7 @@ class TestBootstrap:
     def test_happy_path(self, runner: CliRunner, k8s_dir: Path) -> None:
         (k8s_dir / "helm").mkdir()
         (k8s_dir / "helm" / "signoz-values.yaml").write_text("global: {}")
+        (k8s_dir / "helm" / "k8s-infra-values.yaml").write_text("presets: {}")
         (k8s_dir / "signoz-extras.yaml").write_text("apiVersion: v1")
         (k8s_dir / "signoz-ingress.yaml").write_text("apiVersion: v1")
 
@@ -32,9 +33,10 @@ class TestBootstrap:
 
         assert result.exit_code == 0, result.output
         assert "SigNoz is wired in" in result.output
-        # helm repo add + helm repo update + kubectl create ns + helm upgrade +
-        # kubectl wait + 2x kubectl apply (extras + ingress) = 7 subprocess calls
-        assert mock.call_count == 7
+        # helm repo add + helm repo update + kubectl create ns + helm upgrade signoz +
+        # kubectl wait + helm upgrade k8s-infra + 2x kubectl apply (extras + ingress)
+        # = 8 subprocess calls
+        assert mock.call_count == 8
 
     def test_helm_install_failure_exits_1(self, runner: CliRunner, k8s_dir: Path) -> None:
         (k8s_dir / "helm").mkdir()
@@ -218,9 +220,6 @@ _EXPECTED_SIGNOZ_SERVICES: tuple[str, ...] = (
     "ots",
     "openclaw",
     "activitywatch",
-    "your-spotify-server",
-    "your-spotify-client",
-    "portainer",
     "rustfs",
     "ollama",
 )
@@ -246,8 +245,11 @@ def test_signoz_values_enables_logs_and_label_based_service_name() -> None:
 
     Together these make every Deployment appear as its own service in the
     SigNoz UI (logs tab + services tab) without per-pod instrumentation.
+
+    The agent config lives in the standalone k8s-infra-values.yaml since
+    signoz/signoz >= 0.55 dropped the k8s-infra subchart.
     """
-    values = (settings.K8S_PATH / "helm" / "signoz-values.yaml").read_text()
+    values = (settings.K8S_PATH / "helm" / "k8s-infra-values.yaml").read_text()
     assert "logsCollection:" in values
     assert "extractLabels:" in values
     assert "tag_name: service.name" in values

@@ -79,7 +79,6 @@ class TestOtel:
         tracer = MagicMock()
         provider = MagicMock(spec=["force_flush"])
         log_provider = MagicMock(spec=["force_flush"])
-        client = MagicMock()
         with (
             patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
             patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
@@ -91,9 +90,8 @@ class TestOtel:
                 return_value=log_provider,
             ),
             patch("hallm.cli.subcommands.seed.sentry_sdk.capture_message") as capture,
-            patch("hallm.cli.subcommands.seed.sentry_sdk.Hub") as hub,
+            patch("hallm.cli.subcommands.seed.sentry_sdk.flush") as flush,
         ):
-            hub.current.client = client
             result = runner.invoke(app, ["otel", "--service-name", "x", "--message", "hello"])
 
         assert result.exit_code == 0, result.output
@@ -102,7 +100,7 @@ class TestOtel:
         capture.assert_called_once_with("hello", level="info")
         provider.force_flush.assert_called_once()
         log_provider.force_flush.assert_called_once()
-        client.flush.assert_called_once_with(timeout=5.0)
+        flush.assert_called_once_with(timeout=5.0)
         assert settings.otel_service_name == "x"
 
     def test_skips_glitchtip_when_dsn_blank(self, runner: CliRunner) -> None:
