@@ -45,6 +45,8 @@ _CERT_MANAGER_URL = (
 )
 # Manifests applied/managed outside the generic apply loop.
 # registries.yaml is a k3s registry config file, not a Kubernetes manifest.
+# traefik-config.yaml must be applied before postgres so the bootstrap can
+# reach postgres through the Traefik TCP entrypoint.
 # signoz-{ingress,extras}.yaml are owned by `hallm signoz bootstrap`.
 _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
     {
@@ -53,6 +55,7 @@ _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
         "registries.yaml",
         "signoz-ingress.yaml",
         "signoz-extras.yaml",
+        "traefik-config.yaml",
     }
 )
 
@@ -423,6 +426,9 @@ def setup(
         )
         if not api_ready:
             _fail("Kubernetes API server did not become ready in time")
+
+        typer.echo("\n==> Configuring Traefik TCP entrypoints (postgres, valkey)...")
+        kubectl.apply(_manifest("traefik-config.yaml"), label="Traefik entrypoints")
 
         typer.echo("\n==> Installing ROCm k8s device plugin...")
         kubectl.apply_url(_DEVICE_PLUGIN_URL)

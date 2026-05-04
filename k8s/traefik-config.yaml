@@ -1,0 +1,28 @@
+# Traefik entrypoints for non-HTTP services exposed via the k3d loadbalancer.
+# k3d binds 10379:6379 and 10432:5432 on the host; this tells Traefik to
+# accept TCP traffic on the matching in-cluster ports so IngressRouteTCP
+# resources can route it.
+#
+# This is the single source of truth for Traefik HelmChartConfig — only one
+# resource named "traefik" can exist in kube-system, so per-service manifests
+# (postgres.yaml, valkey.yaml) must NOT redefine it.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      postgres:
+        port: 5432
+        expose:
+          default: true
+        exposedPort: 5432
+        protocol: TCP
+      valkey:
+        port: 6379
+        expose:
+          default: true
+        exposedPort: 6379
+        protocol: TCP

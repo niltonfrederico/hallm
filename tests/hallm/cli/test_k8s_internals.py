@@ -256,6 +256,7 @@ class TestApplyAllServiceManifests:
             "registries.yaml",
             "signoz-ingress.yaml",
             "signoz-extras.yaml",
+            "traefik-config.yaml",
             "ollama.yaml",
         ):
             (tmp_path / name).write_text(f"kind: Test  # {name}")

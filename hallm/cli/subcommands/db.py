@@ -58,6 +58,8 @@ async def _run_bootstrap() -> None:
                     sql_file.read_text(),
                     {
                         "POSTGRES_PASSWORD": settings.database["password"],
+                        "PAPERLESS_DB_PASSWORD": settings.paperless_db_password,
+                        "GLITCHTIP_DB_PASSWORD": settings.glitchtip_db_password,
                     },
                 )
             except ValueError as exc:

@@ -85,7 +85,7 @@ class TestSetup:
         assert result.exit_code == 0
         assert "Done" in result.output
         assert "Syncing secrets" in result.output
-        assert mock.call_count == 9
+        assert mock.call_count == 10
         mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
     def test_k3d_create_fails(self, tmp_path: Path, runner: CliRunner) -> None:
@@ -125,7 +125,13 @@ class TestSetup:
             _PATCH_MOUNT,
             patch(
                 "subprocess.run",
-                side_effect=[_cp(), _cp(), _cp(returncode=1, stderr="dp fail"), _cp()],
+                side_effect=[
+                    _cp(),  # k3d cluster create
+                    _cp(),  # poll: kubectl get nodes
+                    _cp(),  # apply traefik-config.yaml
+                    _cp(returncode=1, stderr="dp fail"),  # apply ROCm device plugin
+                    _cp(),  # k3d cluster delete cleanup
+                ],
             ),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
@@ -140,7 +146,17 @@ class TestSetup:
         with (
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
-            patch("subprocess.run", side_effect=[_cp(), _cp(), _cp(), _cp(returncode=1), _cp()]),
+            patch(
+                "subprocess.run",
+                side_effect=[
+                    _cp(),  # k3d cluster create
+                    _cp(),  # poll: kubectl get nodes
+                    _cp(),  # apply traefik-config.yaml
+                    _cp(),  # apply ROCm device plugin
+                    _cp(returncode=1),  # apply cert-manager
+                    _cp(),  # k3d cluster delete cleanup
+                ],
+            ),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
             result = runner.invoke(app, ["setup"])
@@ -156,7 +172,15 @@ class TestSetup:
             _PATCH_MOUNT,
             patch(
                 "subprocess.run",
-                side_effect=[_cp(), _cp(), _cp(), _cp(), _cp(returncode=1), _cp()],
+                side_effect=[
+                    _cp(),  # k3d cluster create
+                    _cp(),  # poll: kubectl get nodes
+                    _cp(),  # apply traefik-config.yaml
+                    _cp(),  # apply ROCm device plugin
+                    _cp(),  # apply cert-manager
+                    _cp(returncode=1),  # wait for cert-manager-webhook
+                    _cp(),  # k3d cluster delete cleanup
+                ],
             ),
             patch.object(settings, "SECRETS_PATH", secrets),
         ):
@@ -190,7 +214,7 @@ class TestSetup:
             _PATCH_MOUNT,
             patch(
                 "subprocess.run",
-                side_effect=[_cp()] * 5 + [_cp(returncode=1, stderr="cerb"), _cp()],
+                side_effect=[_cp()] * 6 + [_cp(returncode=1, stderr="cerb"), _cp()],
             ),
             patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
             patch.object(settings, "SECRETS_PATH", secrets),
@@ -246,8 +270,9 @@ class TestSetup:
 
         assert result.exit_code == 0
         assert "Restoring" in result.output
-        # 4 pre-cerberus (incl. api-ready poll) + webhook wait + create-secret dry-run + apply secret + apply issuer
-        assert mock.call_count == 8
+        # k3d create + api-ready poll + apply traefik-config + apply ROCm + apply cert-manager
+        # + webhook wait + create-secret dry-run + apply secret + apply issuer
+        assert mock.call_count == 9
         mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
 

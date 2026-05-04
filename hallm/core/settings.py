@@ -65,9 +65,11 @@ class Settings:
     # Paperless-ngx (document management)
     paperless_url: str = env.str("PAPERLESS_URL", "https://paperless.hallm.local")
     paperless_token: str = env.str("PAPERLESS_TOKEN", "")
+    paperless_db_password: str = env.str("PAPERLESS_DB_PASSWORD", "")
 
     # Glitchtip (Sentry-compatible error tracking)
     glitchtip_dsn: str = env.str("GLITCHTIP_DSN", "")
+    glitchtip_db_password: str = env.str("GLITCHTIP_DB_PASSWORD", "")
     # Fraction of OTEL spans to forward to Glitchtip via SentrySpanProcessor.
     # 1.0 captures every span (fine on the dev cluster); lower in production.
     sentry_traces_sample_rate: float = env.float("SENTRY_TRACES_SAMPLE_RATE", 1.0)
