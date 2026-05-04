@@ -3,6 +3,7 @@
 import subprocess
 from datetime import UTC
 from datetime import datetime
+from pathlib import Path
 
 import typer
 
@@ -18,54 +19,96 @@ _ORG = "hallm"
 _DEFAULT_NAMESPACE = "default"
 
 
-def _publish(name: str) -> None:
-    """Build, tag (latest + timestamp), and push <name> to unregistry."""
-    dockerfile = settings.ROOT_PATH / "docker" / f"Dockerfile.{name}"
-    if not dockerfile.exists():
-        _fail(f"Dockerfile not found: {dockerfile}")
+def _build_and_push(dockerfile: Path, image_name: str, context: Path) -> None:
+    """Build `dockerfile` and push as <REGISTRY>/<ORG>/<image_name>:{latest,<ts>}.
 
+    `--output type=registry` builds and pushes in one shot without populating
+    the local image store. `--provenance=false --sbom=false` and an explicit
+    `--platform` keep the result a plain `application/vnd.docker.distribution.
+    manifest.v2+json` rather than an OCI image index — unregistry's containerd
+    backend resolves the former cleanly but loses the tag binding for the
+    latter, which surfaces as `ErrImagePull: not found` on the pulling node.
+    """
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%d%H%M%S")
-    base_tag = f"{_REGISTRY}/{_ORG}/{name}"
+    base_tag = f"{_REGISTRY}/{_ORG}/{image_name}"
     tag_latest = f"{base_tag}:latest"
     tag_ts = f"{base_tag}:{timestamp}"
 
-    typer.echo(f"==> Building {name} from {dockerfile.name}...")
+    typer.echo(f"==> Building and pushing {image_name} from {dockerfile.name}...")
     _docker.run_or_fail(
         [
             "docker",
+            "buildx",
             "build",
+            "--platform",
+            "linux/amd64",
+            "--provenance=false",
+            "--sbom=false",
             "--tag",
             tag_latest,
             "--tag",
             tag_ts,
             "--file",
             str(dockerfile),
-            str(settings.ROOT_PATH),
+            "--output",
+            "type=registry",
+            str(context),
         ],
-        f"Build failed for {name}",
+        f"Build/push failed for {image_name}",
         stream=True,
     )
 
-    for tag in (tag_latest, tag_ts):
-        typer.echo(f"==> Pushing {tag}...")
-        _docker.run_or_fail(["docker", "push", tag], f"Push failed for {tag}")
+    typer.echo(f"\n[OK]  {image_name} published as {tag_latest} and {tag_ts}")
 
-    typer.echo("==> Pruning local Docker build cache...")
-    result = _docker.run(["docker", "buildx", "prune", "--force"])
-    if result.returncode != 0:
-        typer.echo(f"WARNING: cache prune failed: {result.stderr}", err=True)
-    else:
-        typer.echo(result.stdout.strip() or "  Cache cleared.")
 
-    typer.echo(f"\n[OK]  {name} published as {tag_latest} and {tag_ts}")
+def _publish(name: str) -> None:
+    """Resolve <name> to docker/Dockerfile.<name> and publish."""
+    dockerfile = settings.ROOT_PATH / "docker" / f"Dockerfile.{name}"
+    if not dockerfile.exists():
+        _fail(f"Dockerfile not found: {dockerfile}")
+    _build_and_push(dockerfile, name, context=settings.ROOT_PATH)
 
 
 @app.command("publish")
 def publish(
-    name: str = typer.Argument(..., help="Image name to build and push (e.g. activitywatch)."),
+    target: str = typer.Argument(
+        ...,
+        help=("Service name (resolved to docker/Dockerfile.<name>) or a path to a Dockerfile."),
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help=(
+            "Image name override. Required when target is a Dockerfile path "
+            "whose filename is not Dockerfile.<name>."
+        ),
+    ),
 ) -> None:
-    """Build, tag (latest + timestamp), push to unregistry, and prune local cache."""
-    _publish(name)
+    """Build and push an image to unregistry.
+
+    Two forms:
+      - `publish <name>` — builds docker/Dockerfile.<name> with the repo root
+        as build context.
+      - `publish <path>` — builds the given Dockerfile with its parent
+        directory as build context. The image name is derived from
+        `Dockerfile.<name>` filenames; pass `--name` otherwise.
+    """
+    candidate = Path(target)
+    if candidate.is_file():
+        dockerfile = candidate.resolve()
+        image_name = name
+        if image_name is None:
+            if dockerfile.name.startswith("Dockerfile."):
+                image_name = dockerfile.name.removeprefix("Dockerfile.")
+            else:
+                _fail(f"Cannot derive image name from {dockerfile.name}; pass --name.")
+        _build_and_push(dockerfile, image_name, context=dockerfile.parent)
+        return
+
+    if name is not None:
+        _fail("--name is only valid when target is a Dockerfile path.")
+    _publish(target)
 
 
 @app.command()

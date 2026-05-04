@@ -22,61 +22,76 @@ class TestPublish:
         assert result.exit_code == 1
         assert "Dockerfile not found" in result.output
 
-    def test_build_fails(
+    def test_build_push_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_dockerfile(tmp_path, "myimage")
         monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
-        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="build error")):
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="buildx error")):
             result = runner.invoke(app, ["publish", "myimage"])
         assert result.exit_code == 1
-        assert "Build failed for myimage" in result.output
-
-    def test_push_fails(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
-    ) -> None:
-        write_dockerfile(tmp_path, "myimage")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                _cp(),  # docker build succeeds
-                _cp(returncode=1, stderr="push denied"),  # push :latest fails
-            ],
-        ):
-            result = runner.invoke(app, ["publish", "myimage"])
-        assert result.exit_code == 1
-        assert "Push failed" in result.output
-
-    def test_prune_fails_nonfatal(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
-    ) -> None:
-        write_dockerfile(tmp_path, "myimage")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
-        with patch(
-            "subprocess.run",
-            side_effect=[
-                _cp(),  # docker build
-                _cp(),  # push :latest
-                _cp(),  # push :timestamp
-                _cp(returncode=1, stderr="prune err"),  # prune fails
-            ],
-        ):
-            result = runner.invoke(app, ["publish", "myimage"])
-        assert result.exit_code == 0
-        assert "WARNING" in result.output
+        assert "Build/push failed for myimage" in result.output
 
     def test_publish_success(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_dockerfile(tmp_path, "myimage")
         monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
-        with patch("subprocess.run", return_value=_cp()):
+        with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["publish", "myimage"])
         assert result.exit_code == 0
         assert "[OK]" in result.output
         assert "myimage" in result.output
         assert "latest" in result.output
+        # Single buildx invocation — no separate push step.
+        assert mock.call_count == 1
+        cmd = mock.call_args_list[0][0][0]
+        assert cmd[:3] == ["docker", "buildx", "build"]
+        assert "--output" in cmd and "type=registry" in cmd
+        assert "--provenance=false" in cmd and "--sbom=false" in cmd
+
+    def test_publish_path_derives_name_from_filename(
+        self, tmp_path: Path, runner: CliRunner
+    ) -> None:
+        dockerfile = tmp_path / "Dockerfile.myimage"
+        dockerfile.write_text("FROM scratch\n")
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            result = runner.invoke(app, ["publish", str(dockerfile)])
+        assert result.exit_code == 0
+        assert "myimage" in result.output
+        cmd = mock.call_args_list[0][0][0]
+        # Build context is the dockerfile's parent.
+        assert cmd[-1] == str(tmp_path.resolve())
+        # Image tag was derived from filename.
+        assert "unregistry.hallm.local/hallm/myimage:latest" in cmd
+
+    def test_publish_path_with_name_override(self, tmp_path: Path, runner: CliRunner) -> None:
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            result = runner.invoke(app, ["publish", str(dockerfile), "--name", "custom"])
+        assert result.exit_code == 0
+        assert "custom" in result.output
+        cmd = mock.call_args_list[0][0][0]
+        assert "unregistry.hallm.local/hallm/custom:latest" in cmd
+
+    def test_publish_path_unparseable_filename_requires_name(
+        self, tmp_path: Path, runner: CliRunner
+    ) -> None:
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text("FROM scratch\n")
+        result = runner.invoke(app, ["publish", str(dockerfile)])
+        assert result.exit_code == 1
+        assert "Cannot derive image name" in result.output
+
+    def test_publish_name_with_override_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
+        write_dockerfile(tmp_path, "myimage")
+        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        result = runner.invoke(app, ["publish", "myimage", "--name", "custom"])
+        assert result.exit_code == 1
+        assert "--name is only valid" in result.output
 
 
 class TestDeploy:
