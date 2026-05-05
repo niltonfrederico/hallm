@@ -217,7 +217,7 @@ _EXPECTED_SIGNOZ_SERVICES: tuple[str, ...] = (
     "paperless",
     "glitchtip",
     "ots",
-    "activitywatch",
+    "wakapi",
     "rustfs",
 )
 

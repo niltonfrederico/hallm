@@ -55,10 +55,10 @@ data:
         targets:
           - endpoint: http://ots.default.svc.cluster.local:80
             method: GET
-      httpcheck/activitywatch:
+      httpcheck/wakapi:
         collection_interval: 60s
         targets:
-          - endpoint: http://activitywatch.default.svc.cluster.local:80
+          - endpoint: http://wakapi.default.svc.cluster.local:80
             method: GET
       httpcheck/rustfs:
         collection_interval: 60s
@@ -108,9 +108,9 @@ data:
           - {key: service.name, value: ots, action: upsert}
           - {key: deployment.environment, value: localhost, action: upsert}
           - {key: signoz.source, value: hallm-extras, action: upsert}
-      resource/activitywatch:
+      resource/wakapi:
         attributes:
-          - {key: service.name, value: activitywatch, action: upsert}
+          - {key: service.name, value: wakapi, action: upsert}
           - {key: deployment.environment, value: localhost, action: upsert}
           - {key: signoz.source, value: hallm-extras, action: upsert}
       resource/rustfs:
@@ -155,9 +155,9 @@ data:
           receivers: [httpcheck/ots]
           processors: [resource/ots, batch]
           exporters: [otlp]
-        metrics/activitywatch:
-          receivers: [httpcheck/activitywatch]
-          processors: [resource/activitywatch, batch]
+        metrics/wakapi:
+          receivers: [httpcheck/wakapi]
+          processors: [resource/wakapi, batch]
           exporters: [otlp]
         metrics/rustfs:
           receivers: [httpcheck/rustfs]
