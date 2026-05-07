@@ -18,5 +18,6 @@ RUN pip install --no-cache-dir \
         jupyter-mcp-server \
         jupyter-collaboration==4.0.2 \
         jupyter-mcp-tools \
+        jupyter-ruff \
         ipykernel \
         pycrdt
