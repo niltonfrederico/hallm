@@ -11,6 +11,19 @@ spec:
       storage: 10Gi
 
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jupyter-claude
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,38 +42,63 @@ spec:
       enableServiceLinks: false
       containers:
         - name: jupyter
-          image: quay.io/jupyter/base-notebook:latest
-          imagePullPolicy: IfNotPresent
-          args:
-            - start-notebook.py
-            - --ServerApp.token=
-            - --ServerApp.password=
-            - --ServerApp.disable_check_xsrf=True
-            - --ServerApp.allow_origin=*
-            - --ServerApp.base_url=/
+          image: unregistry.hallm.local/hallm/jupyter:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -lc
+            - |
+              exec start-notebook.py \
+                --IdentityProvider.token="${JUPYTER_TOKEN}" \
+                --ServerApp.disable_check_xsrf=True \
+                --ServerApp.allow_origin='*' \
+                --ServerApp.base_url=/ \
+                --ServerApp.root_dir=/home/jovyan/work
+          env:
+            - name: JUPYTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: JUPYTER_TOKEN
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: ANTHROPIC_API_KEY
+            - name: NBI_CLAUDE_MODE_POLICY
+              value: force-on
+            - name: NBI_CLAUDE_CODE_TOOLS_POLICY
+              value: force-on
+            - name: NBI_CLAUDE_JUPYTER_UI_TOOLS_POLICY
+              value: force-on
           ports:
             - containerPort: 8888
           resources:
             requests:
               cpu: "200m"
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 4Gi
           volumeMounts:
             - name: data
-              mountPath: /home/jovyan
+              mountPath: /home/jovyan/work
+            - name: claude
+              mountPath: /home/jovyan/.claude
           readinessProbe:
             httpGet:
               path: /api
               port: 8888
-            initialDelaySeconds: 15
+            initialDelaySeconds: 20
             periodSeconds: 10
-            failureThreshold: 6
+            failureThreshold: 12
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: jupyter-data
+        - name: claude
+          persistentVolumeClaim:
+            claimName: jupyter-claude
 
 ---
 apiVersion: v1

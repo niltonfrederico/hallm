@@ -1,0 +1,22 @@
+FROM quay.io/jupyter/base-notebook:latest
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g @anthropic-ai/claude-code
+
+USER ${NB_UID}
+
+RUN pip install --no-cache-dir \
+        notebook-intelligence \
+        jupyter-mcp-server \
+        jupyter-collaboration==4.0.2 \
+        jupyter-mcp-tools \
+        ipykernel \
+        pycrdt
