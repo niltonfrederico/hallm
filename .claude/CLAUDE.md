@@ -44,6 +44,7 @@ hallm/
 │       ├── k8s.py               # cluster lifecycle + cluster operations
 │       ├── db.py                # bootstrap (per-service DB creation)
 │       ├── mcp.py               # serve
+│       ├── network.py           # apply, health (Caddy + dnsmasq)
 │       └── container.py         # publish
 ├── core/
 │   ├── settings.py              # Class-level env reads + cached_property DB
@@ -62,6 +63,7 @@ hallm/
 │   └── migrations/
 └── mcp/                         # FastMCP server
 k8s/                             # Kubernetes manifests applied by `hallm k8s setup`
+network/                         # Caddyfile + dnsmasq + caddy unit template (`hallm network apply`)
 tests/                           # Mirror of hallm/ layout
 ```
 
@@ -232,6 +234,38 @@ resources:
 ### TLS / Ingress
 
 Annotate any Ingress with `cert-manager.io/cluster-issuer: cerberus-ca` to get a certificate signed by the local CA. Add `cerberus-ca-secret` to your browser/OS trust store if you need the cert to be trusted locally.
+
+## Local network (network/ + `hallm network`)
+
+`network/` holds the host-level config that fronts the OpenClaw gateway and
+any future `*.hallm.local` services that don't live in the k3d cluster.
+
+| Concern | Detail |
+| --- | --- |
+| Reverse proxy | Caddy bound to `127.0.0.2:80` (kept off `127.0.0.1` to avoid the cluster's Traefik) |
+| DNS | dnsmasq maps `openclaw.hallm.local` → `127.0.0.2`, `hallm.local` → `127.0.0.1` |
+| Backend | OpenClaw gateway on `127.0.0.1:18789` (source: `~/.openclaw/openclaw.json` → `gateway.port`) |
+| Caddy runtime | System systemd unit `hallm-caddy.service`, root-owned (so `:80` works without caps) |
+| Install mode | `install -m 0644` (copy, not symlink) — repo edits require re-running `apply` |
+
+### Network CLI commands
+
+```bash
+uv run hallm network apply     # install configs to /etc + (re)load caddy & dnsmasq (sudo)
+uv run hallm network health    # binaries, services, drift, DNS, TCP reachability
+```
+
+### network/ file layout
+
+```text
+network/
+├── Caddyfile                   # → /etc/caddy/Caddyfile
+├── dnsmasq.d                   # → /etc/dnsmasq.d/hallm.conf
+└── hallm-caddy.service.tpl     # rendered with ##CADDY_BIN##, → /etc/systemd/system/hallm-caddy.service
+```
+
+If you change the OpenClaw gateway port, update **both** `network/Caddyfile`
+and `~/.openclaw/openclaw.json`, then re-run `hallm network apply`.
 
 ## Adding a new model
 

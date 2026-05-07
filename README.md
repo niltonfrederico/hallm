@@ -107,6 +107,7 @@ uv run hallm container publish <name>   # build + push a Docker image
 | `hallm db` | `bootstrap` |
 | `hallm mcp` | `serve` |
 | `hallm container` | `publish` |
+| `hallm network` | `apply`, `health` |
 
 ## Local Kubernetes cluster
 
@@ -189,6 +190,29 @@ resources:
 `HSA_OVERRIDE_GFX_VERSION=10.3.0` is required because the RX 6600
 (RDNA2 / GFX 10.3) is not in ROCm's official support matrix.
 
+## Local Caddy + dnsmasq
+
+The `hallm network` namespace wires up a local Caddy reverse proxy plus
+dnsmasq entries that route `openclaw.hallm.local` to the OpenClaw gateway
+running on `127.0.0.1:18789`. Caddy binds to `127.0.0.2:80` so it doesn't
+fight the k3d cluster's Traefik on `127.0.0.1:80/443`.
+
+Source-of-truth files live in [`network/`](network/):
+
+| File | Installed at | Notes |
+| --- | --- | --- |
+| `network/Caddyfile` | `/etc/caddy/Caddyfile` | reverse-proxies to `localhost:18789` |
+| `network/dnsmasq.d` | `/etc/dnsmasq.d/hallm.conf` | maps `openclaw.hallm.local` → `127.0.0.2`, `hallm.local` → `127.0.0.1` |
+| `network/hallm-caddy.service.tpl` | `/etc/systemd/system/hallm-caddy.service` | rendered with the discovered `caddy` binary path |
+
+```bash
+uv run hallm network apply     # install configs (sudo) + reload caddy/dnsmasq
+uv run hallm network health    # binaries, services, drift, DNS, TCP reachability
+```
+
+The OpenClaw gateway port (`18789`) comes from `~/.openclaw/openclaw.json`
+under `gateway.port`. Update both files together if you ever change it.
+
 ## Project structure
 
 ```text
@@ -200,6 +224,7 @@ hallm/
 ├── db/         # Tortoise ORM models and helpers
 └── mcp/        # FastMCP server and tools
 k8s/            # Kubernetes manifests (applied by `hallm k8s setup`)
+network/        # Caddyfile + dnsmasq config + caddy systemd unit template
 tests/          # Pytest test suite (mirrors hallm/ layout)
 docker/         # Dockerfiles
 scripts/        # One-shot installers (rootless Docker, etc.)

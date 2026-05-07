@@ -1,0 +1,4 @@
+openclaw.hallm.local:80 {
+    bind 127.0.0.2
+    reverse_proxy localhost:18789
+}

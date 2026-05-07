@@ -1,0 +1,308 @@
+"""Unit tests for hallm.cli.subcommands.network."""
+
+import contextlib
+from collections.abc import Callable
+from collections.abc import Iterator
+from pathlib import Path
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
+import pytest
+from typer.testing import CliRunner
+
+from hallm.cli.subcommands import network
+from hallm.cli.subcommands.network import app
+from tests.mocks import completed_process as _cp
+
+# ---------------------------------------------------------------------------
+# Fixtures and helpers
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def network_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Temp network/ dir with the three repo files; patch module-level path constants."""
+    nd = tmp_path / "network"
+    nd.mkdir()
+    caddyfile = nd / "Caddyfile"
+    caddyfile.write_text("openclaw.hallm.local:80 {\n  reverse_proxy localhost:18789\n}\n")
+    dnsmasq = nd / "dnsmasq.d"
+    dnsmasq.write_text("address=/openclaw.hallm.local/127.0.0.2\n")
+    unit_tpl = nd / "hallm-caddy.service.tpl"
+    unit_tpl.write_text("ExecStart=##CADDY_BIN## run\n")
+
+    monkeypatch.setattr(network, "_NETWORK_DIR", nd)
+    monkeypatch.setattr(network, "_REPO_CADDYFILE", caddyfile)
+    monkeypatch.setattr(network, "_REPO_DNSMASQ", dnsmasq)
+    monkeypatch.setattr(network, "_REPO_UNIT_TPL", unit_tpl)
+    return nd
+
+
+def _socket_cm(*_args: object, **_kwargs: object) -> MagicMock:
+    """create_connection side_effect that returns an open-socket context manager."""
+    return MagicMock()
+
+
+@contextlib.contextmanager
+def _health_env(
+    *,
+    which: Callable[[str], str | None] = lambda b: f"/usr/bin/{b}",
+    subprocess_calls: list[object] | None = None,
+    file_matches: Callable[[Path, Path], bool] | bool = True,
+    gethostbyname: Callable[[str], str] | str = "127.0.0.2",
+    create_connection: Callable[..., object] = _socket_cm,
+) -> Iterator[None]:
+    """Single context manager bundling every patch the health command touches."""
+    if subprocess_calls is None:
+        subprocess_calls = [_cp(), _cp()]  # systemctl is-active x2
+
+    file_matches_kwargs = (
+        {"side_effect": file_matches} if callable(file_matches) else {"return_value": file_matches}
+    )
+    gethost_kwargs = (
+        {"side_effect": gethostbyname}
+        if callable(gethostbyname)
+        else {"return_value": gethostbyname}
+    )
+
+    with (
+        patch("hallm.cli.subcommands.network.shutil.which", side_effect=which),
+        patch("subprocess.run", side_effect=subprocess_calls),
+        patch("hallm.cli.subcommands.network._file_matches", **file_matches_kwargs),
+        patch("hallm.cli.subcommands.network.socket.gethostbyname", **gethost_kwargs),
+        patch(
+            "hallm.cli.subcommands.network.socket.create_connection",
+            side_effect=create_connection,
+        ),
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
+# apply
+# ---------------------------------------------------------------------------
+
+
+# Order of subprocess calls inside apply():
+#   0  caddy validate
+#   1  sudo install Caddyfile
+#   2  sudo install dnsmasq.d
+#   3  sudo install systemd unit
+#   4  sudo systemctl daemon-reload
+#   5  sudo systemctl enable --now hallm-caddy.service
+#   6  sudo systemctl reload-or-restart hallm-caddy.service
+#   7  sudo systemctl reload dnsmasq.service
+_APPLY_HAPPY = [_cp()] * 8
+
+
+class TestApply:
+    def test_success(self, network_dir: Path, runner: CliRunner) -> None:
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/caddy"),
+            patch("subprocess.run", side_effect=list(_APPLY_HAPPY)) as mock,
+        ):
+            result = runner.invoke(app, ["apply"])
+
+        assert result.exit_code == 0
+        assert "Network configuration applied" in result.output
+        assert mock.call_count == 8
+        validate_cmd = mock.call_args_list[0][0][0]
+        assert validate_cmd[0] == "/usr/bin/caddy"
+        assert "validate" in validate_cmd
+        assert str(network_dir / "Caddyfile") in validate_cmd
+        last_cmd = mock.call_args_list[-1][0][0]
+        assert last_cmd == ["sudo", "systemctl", "reload", "dnsmasq.service"]
+
+    def test_renders_unit_with_caddy_path(self, network_dir: Path, runner: CliRunner) -> None:
+        captured: dict[str, str] = {}
+
+        def _capture(cmd: list[str], **_kwargs: object) -> object:
+            if cmd[:2] == ["sudo", "install"] and cmd[-1].endswith("hallm-caddy.service"):
+                captured["unit"] = Path(cmd[-2]).read_text()
+            return _cp()
+
+        with (
+            patch(
+                "hallm.cli.subcommands.network.shutil.which",
+                return_value="/home/linuxbrew/.linuxbrew/bin/caddy",
+            ),
+            patch("subprocess.run", side_effect=_capture),
+        ):
+            result = runner.invoke(app, ["apply"])
+
+        assert result.exit_code == 0
+        assert "/home/linuxbrew/.linuxbrew/bin/caddy" in captured["unit"]
+        assert "##CADDY_BIN##" not in captured["unit"]
+
+    @pytest.mark.parametrize("missing", ["Caddyfile", "dnsmasq.d", "hallm-caddy.service.tpl"])
+    def test_missing_repo_file(self, network_dir: Path, runner: CliRunner, missing: str) -> None:
+        (network_dir / missing).unlink()
+        with patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/caddy"):
+            result = runner.invoke(app, ["apply"])
+
+        assert result.exit_code == 1
+        assert "Missing repo file" in result.output
+        assert missing in result.output
+
+    def test_missing_caddy_binary(self, network_dir: Path, runner: CliRunner) -> None:
+        with patch("hallm.cli.subcommands.network.shutil.which", return_value=None):
+            result = runner.invoke(app, ["apply"])
+
+        assert result.exit_code == 1
+        assert "'caddy' not found" in result.output
+
+    @pytest.mark.parametrize(
+        ("call_index", "expected_substring"),
+        [
+            (0, "Caddyfile failed validation"),
+            (1, "Failed to install /etc/caddy/Caddyfile"),
+            (2, "Failed to install /etc/dnsmasq.d/hallm.conf"),
+            (3, "Failed to install /etc/systemd/system/hallm-caddy.service"),
+            (4, "daemon-reload failed"),
+            (5, "Failed to enable hallm-caddy.service"),
+            (6, "Failed to reload hallm-caddy.service"),
+            (7, "Failed to reload dnsmasq.service"),
+        ],
+    )
+    def test_step_failures(
+        self,
+        network_dir: Path,
+        runner: CliRunner,
+        call_index: int,
+        expected_substring: str,
+    ) -> None:
+        calls = list(_APPLY_HAPPY)
+        calls[call_index] = _cp(returncode=1, stderr="boom")
+
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/caddy"),
+            patch("subprocess.run", side_effect=calls),
+        ):
+            result = runner.invoke(app, ["apply"])
+
+        assert result.exit_code == 1
+        assert expected_substring in result.output
+
+
+# ---------------------------------------------------------------------------
+# health
+# ---------------------------------------------------------------------------
+
+
+class TestHealth:
+    def test_all_checks_pass(self, network_dir: Path, runner: CliRunner) -> None:
+        with _health_env():
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 0
+        assert "Network is healthy" in result.output
+        assert "[FAIL]" not in result.output
+
+    def test_caddy_binary_missing(self, network_dir: Path, runner: CliRunner) -> None:
+        with _health_env(which=lambda b: None if b == "caddy" else f"/usr/bin/{b}"):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL] caddy installed" in result.output
+
+    def test_dnsmasq_binary_missing(self, network_dir: Path, runner: CliRunner) -> None:
+        with _health_env(which=lambda b: None if b == "dnsmasq" else f"/usr/bin/{b}"):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL] dnsmasq installed" in result.output
+
+    def test_caddy_service_inactive(self, network_dir: Path, runner: CliRunner) -> None:
+        # systemctl is-active returns 3 when the unit is inactive.
+        with _health_env(subprocess_calls=[_cp(returncode=3), _cp()]):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL] hallm-caddy.service active" in result.output
+
+    def test_dnsmasq_service_inactive(self, network_dir: Path, runner: CliRunner) -> None:
+        with _health_env(subprocess_calls=[_cp(), _cp(returncode=3)]):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL] dnsmasq.service active" in result.output
+
+    @pytest.mark.parametrize(
+        ("system_path_attr", "label_substring"),
+        [
+            ("_SYSTEM_CADDYFILE", "matches network/Caddyfile"),
+            ("_SYSTEM_DNSMASQ", "matches network/dnsmasq.d"),
+        ],
+    )
+    def test_config_drift(
+        self,
+        network_dir: Path,
+        runner: CliRunner,
+        system_path_attr: str,
+        label_substring: str,
+    ) -> None:
+        target = getattr(network, system_path_attr)
+
+        def _matches(system_path: Path, _repo_path: Path) -> bool:
+            return system_path != target
+
+        with _health_env(file_matches=_matches):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+        assert label_substring in result.output
+
+    def test_dns_wrong_ip(self, network_dir: Path, runner: CliRunner) -> None:
+        with _health_env(gethostbyname="192.0.2.1"):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+        assert "openclaw.hallm.local resolves to" in result.output
+
+    def test_dns_resolution_error(self, network_dir: Path, runner: CliRunner) -> None:
+        def _raise(_host: str) -> str:
+            raise OSError("nope")
+
+        with _health_env(gethostbyname=_raise):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+
+    def test_tcp_unreachable(self, network_dir: Path, runner: CliRunner) -> None:
+        def _refuse(*_args: object, **_kwargs: object) -> object:
+            raise OSError("refused")
+
+        with _health_env(create_connection=_refuse):
+            result = runner.invoke(app, ["health"])
+
+        assert result.exit_code == 1
+        assert "[FAIL]" in result.output
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+class TestFileMatches:
+    def test_matches(self, tmp_path: Path) -> None:
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.write_text("same")
+        b.write_text("same")
+        assert network._file_matches(a, b) is True
+
+    def test_differs(self, tmp_path: Path) -> None:
+        a = tmp_path / "a"
+        b = tmp_path / "b"
+        a.write_text("one")
+        b.write_text("two")
+        assert network._file_matches(a, b) is False
+
+    def test_missing_returns_false(self, tmp_path: Path) -> None:
+        b = tmp_path / "b"
+        b.write_text("x")
+        assert network._file_matches(tmp_path / "missing", b) is False
