@@ -58,6 +58,8 @@ _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
     }
 )
 
+_REQUIRED_NAMESPACES: tuple[str, ...] = ("signoz", "docs")
+
 _GPU_DEVICES: tuple[Path, ...] = (Path("/dev/kfd"), Path("/dev/dri/renderD128"))
 _CGROUP_DELEGATE_FILE = Path("/etc/systemd/system/user@.service.d/delegate.conf")
 _REQUIRED_CGROUP_CONTROLLERS: frozenset[str] = frozenset({"cpu", "cpuset", "io"})
@@ -340,6 +342,13 @@ def mount() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _ensure_namespaces() -> None:
+    """Create any required namespace that doesn't already exist (idempotent)."""
+    for ns in _REQUIRED_NAMESPACES:
+        manifest = f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {ns}\n"
+        kubectl.apply(manifest, label=f"namespace/{ns}")
+
+
 def _setup_postgres() -> None:
     """Apply the postgres manifest, wait for the deployment to be ready, then bootstrap the DB."""
     kubectl.apply(_manifest("postgres.yaml"), label="postgres")
@@ -425,6 +434,9 @@ def setup(
         )
         if not api_ready:
             _fail("Kubernetes API server did not become ready in time")
+
+        typer.echo("\n==> Ensuring required namespaces exist...")
+        _ensure_namespaces()
 
         typer.echo("\n==> Configuring Traefik TCP entrypoints (postgres, valkey)...")
         kubectl.apply(_manifest("traefik-config.yaml"), label="Traefik entrypoints")
