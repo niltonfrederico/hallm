@@ -79,6 +79,21 @@ class TestApply:
         assert result.exit_code == 0
         assert ".env → Secret 'hallm-env'" in result.output
 
+    def test_namespaced_filename(self, secrets_dir: Path, runner: CliRunner) -> None:
+        (secrets_dir / "signoz.otel.env").write_text("X=1\n")
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout="yaml: content"), _cp()],
+        ) as mock_run:
+            result = runner.invoke(app, ["apply"])
+
+        assert result.exit_code == 0
+        assert "signoz.otel.env → Secret 'otel' in namespace 'signoz'" in result.output
+        create_cmd = mock_run.call_args_list[0].args[0]
+        assert "otel" in create_cmd
+        assert "--namespace" in create_cmd
+        assert create_cmd[create_cmd.index("--namespace") + 1] == "signoz"
+
     def test_multiple_secrets_synced(self, secrets_dir: Path, runner: CliRunner) -> None:
         (secrets_dir / "alpha.env").write_text("A=1\n")
         (secrets_dir / "beta.env").write_text("B=2\n")

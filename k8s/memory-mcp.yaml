@@ -108,13 +108,21 @@ spec:
           resources:
             requests:
               cpu: "50m"
-              memory: 128Mi
+              memory: 256Mi
             limits:
-              cpu: "500m"
-              memory: 512Mi
+              cpu: "1000m"
+              memory: 1Gi
         - name: auth
           image: caddy:2-alpine
-          command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          command:
+            [
+              "caddy",
+              "run",
+              "--config",
+              "/etc/caddy/Caddyfile",
+              "--adapter",
+              "caddyfile",
+            ]
           env:
             - name: BEARER_TOKEN
               valueFrom:

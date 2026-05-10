@@ -103,28 +103,44 @@ _CLUSTER_OVERRIDES: dict[str, str] = {
 _PREPARE_SKIP_KEYS: frozenset[str] = frozenset({"OTS_HOST"})
 
 
+def _parse_secret_target(env_file: Path) -> tuple[str, str]:
+    """Return ``(namespace, secret_name)`` derived from an env filename.
+
+    ``{namespace}.{name}.env`` targets that namespace; bare ``{name}.env``
+    falls back to ``default``. The literal ``.env`` becomes ``hallm-env``
+    in ``default``.
+    """
+    if env_file.name == ".env":
+        return "default", "hallm-env"
+    namespace, dot, name = env_file.stem.partition(".")
+    if dot and name:
+        return namespace, name
+    return "default", env_file.stem
+
+
 def _sync_secrets() -> None:
     """Sync ~/.hallm/*.env files → Kubernetes Secrets (shared with k8s setup)."""
     secrets_dir = settings.SECRETS_PATH
     secrets_dir.mkdir(parents=True, exist_ok=True)
 
-    sources: list[tuple[str, Path]] = [
-        (env_file.stem, env_file)
-        for env_file in sorted(secrets_dir.glob("*.env"))
-        if env_file.name != ".env"
+    sources: list[Path] = [
+        env_file for env_file in sorted(secrets_dir.glob("*.env")) if env_file.name != ".env"
     ]
     hallm_env = secrets_dir / ".env"
     if hallm_env.exists():
-        sources.append(("hallm-env", hallm_env))
+        sources.append(hallm_env)
 
     if not sources:
         typer.echo(f"No .env files found in {secrets_dir}. Add <secret-name>.env files to sync.")
         return
 
-    for secret_name, env_file in sources:
-        typer.echo(f"==> Syncing {env_file.name} → Secret '{secret_name}'...")
+    for env_file in sources:
+        namespace, secret_name = _parse_secret_target(env_file)
+        typer.echo(
+            f"==> Syncing {env_file.name} → Secret '{secret_name}' in namespace '{namespace}'..."
+        )
         kubectl.apply_from_cmd(
-            f"Secret '{secret_name}'",
+            f"Secret '{secret_name}' (ns={namespace})",
             [
                 "kubectl",
                 "create",
@@ -132,6 +148,8 @@ def _sync_secrets() -> None:
                 "generic",
                 secret_name,
                 f"--from-env-file={env_file}",
+                "--namespace",
+                namespace,
                 "--dry-run=client",
                 "-o",
                 "yaml",
@@ -146,7 +164,9 @@ def apply() -> None:
     """Sync ~/.hallm/*.env files → Kubernetes Secrets.
 
     Each <secret-name>.env file in ~/.hallm/ is applied as a Secret named
-    <secret-name>.  A file named exactly .env is applied as 'hallm-env'.
+    <secret-name> in the 'default' namespace. Use <namespace>.<secret-name>.env
+    to target a specific namespace. A file named exactly .env is applied as
+    'hallm-env' in 'default'.
     """
     _sync_secrets()
 
