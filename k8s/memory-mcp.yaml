@@ -1,0 +1,188 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: memory-mcp-data
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: memory-mcp-caddy
+  namespace: default
+data:
+  Caddyfile: |
+    {
+      auto_https off
+      admin off
+    }
+    :8080 {
+      @authed header Authorization "Bearer {$BEARER_TOKEN}"
+      handle @authed {
+        reverse_proxy 127.0.0.1:8000
+      }
+      handle /healthz {
+        respond "ok" 200
+      }
+      handle {
+        respond "Unauthorized" 401
+      }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-mcp
+  namespace: default
+  labels:
+    app: memory-mcp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: memory-mcp
+  template:
+    metadata:
+      labels:
+        app: memory-mcp
+    spec:
+      containers:
+        - name: gateway
+          image: supercorp/supergateway:latest
+          command: ["/bin/sh", "-c"]
+          # Patch the bundled @modelcontextprotocol/sdk so it accepts the 2025-11-25
+          # protocol version that Claude Code 2.x sends. SDK 1.29.0 (latest as of
+          # 2026-05) only knows up to 2025-06-18, and server-memory echoes whatever
+          # the client requests instead of negotiating, so headers on follow-up
+          # requests are rejected with "Unsupported protocol version" without this.
+          # Drop this once supergateway ships an SDK that lists 2025-11-25 natively.
+          args:
+            - |
+              set -e
+              PV=2025-11-25
+              SDK=/usr/local/lib/node_modules/supergateway/node_modules/@modelcontextprotocol/sdk/dist
+              for f in "$SDK/esm/types.js" "$SDK/cjs/types.js"; do
+                if ! grep -q "'$PV'" "$f"; then
+                  sed -i "s/SUPPORTED_PROTOCOL_VERSIONS = \[/SUPPORTED_PROTOCOL_VERSIONS = ['$PV', /" "$f"
+                  echo "patched $f"
+                fi
+              done
+              exec supergateway "$@"
+            - "--"
+            - "--stdio"
+            - "npx -y @modelcontextprotocol/server-memory@2026.1.26"
+            - "--outputTransport"
+            - "streamableHttp"
+            - "--port"
+            - "8000"
+            - "--streamableHttpPath"
+            - "/mcp"
+            - "--healthEndpoint"
+            - "/healthz"
+            - "--logLevel"
+            - "info"
+          env:
+            - name: MEMORY_FILE_PATH
+              value: /data/memory.jsonl
+          ports:
+            - containerPort: 8000
+              name: stdio-http
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+        - name: auth
+          image: caddy:2-alpine
+          command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          env:
+            - name: BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: MEMORY_MCP_BEARER_TOKEN
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "10m"
+              memory: 32Mi
+            limits:
+              cpu: "200m"
+              memory: 128Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: memory-mcp-data
+        - name: caddy-config
+          configMap:
+            name: memory-mcp-caddy
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memory-mcp
+  namespace: default
+spec:
+  selector:
+    app: memory-mcp
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: memory-mcp
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts: [memory.hallm.local]
+      secretName: memory-mcp-tls
+  rules:
+    - host: memory.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: memory-mcp
+                port:
+                  number: 80
