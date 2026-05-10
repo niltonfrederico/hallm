@@ -28,6 +28,33 @@ spec:
         app: glitchtip
         component: web
     spec:
+      initContainers:
+        - name: migrate
+          image: glitchtip/glitchtip:latest
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: GLITCHTIP_DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: GLITCHTIP_VALKEY_URL
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: GLITCHTIP_SECRET_KEY
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
       containers:
         - name: web
           image: glitchtip/glitchtip:latest
