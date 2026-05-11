@@ -56,7 +56,7 @@ class TestInstall:
         first_cmd = mock.call_args_list[0].args[0]
         assert first_cmd == ["uv", "tool", "uninstall", "hallm"]
         second_cmd = mock.call_args_list[1].args[0]
-        assert second_cmd == ["uv", "tool", "install", "--editable", str(repo)]
+        assert second_cmd == ["uv", "tool", "install", "--force", "--editable", str(repo)]
 
         pointer = tmp_path / "hallm-home" / "repo"
         assert pointer.read_text().strip() == str(repo)

@@ -46,7 +46,7 @@ def install() -> None:
 
     _run(["uv", "tool", "uninstall", "hallm"])
     _run_or_fail(
-        ["uv", "tool", "install", "--editable", str(repo)],
+        ["uv", "tool", "install", "--force", "--editable", str(repo)],
         "uv tool install failed",
     )
 
