@@ -23,6 +23,9 @@ class PostgresStep(Step):
     name: ClassVar[str] = "Setting up postgres"
     app: App = PostgresApp()
     needs_secrets: ClassVar[bool] = True
+    # Re-run db bootstrap every cluster setup so per-service DBs added to
+    # Settings get reconciled even when postgres itself is already up.
+    always_run_post: ClassVar[bool] = True
 
     def post(self) -> None:
         typer.echo("  Running database bootstrap...")

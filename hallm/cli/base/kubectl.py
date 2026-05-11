@@ -54,6 +54,27 @@ def get_json(args: list[str]) -> Any | None:
         return None
 
 
+def probe(resource: str, condition: str, *, namespace: str = "default") -> bool:
+    """Return True when `resource` already satisfies `condition`; False otherwise.
+
+    `kubectl wait --timeout=0s` returns immediately — no polling. Any non-zero
+    exit (missing resource, namespace gone, condition not yet met) surfaces as
+    False so callers treat it as "not satisfied yet".
+    """
+    result = run(
+        [
+            "kubectl",
+            "wait",
+            f"--for=condition={condition}",
+            resource,
+            "-n",
+            namespace,
+            "--timeout=0s",
+        ]
+    )
+    return result.returncode == 0
+
+
 def wait(
     resource: str,
     condition: str,

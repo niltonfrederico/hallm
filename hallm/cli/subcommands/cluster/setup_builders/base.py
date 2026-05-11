@@ -114,10 +114,29 @@ class Step(metaclass=ABCMeta):
     # Builder synthesis hooks.
     is_cluster_ready_marker: ClassVar[bool] = False
     needs_secrets: ClassVar[bool] = False
+    # When True, post() runs even when is_satisfied() short-circuits the
+    # lifecycle — opt-in for Steps whose post() carries idempotent side-effects
+    # that should re-execute each run (e.g. PostgresStep db bootstrap).
+    always_run_post: ClassVar[bool] = False
 
     @property
     def required_namespaces(self) -> frozenset[str]:
         return frozenset({self.app.namespace}) if self.app is not None else frozenset()
+
+    def is_satisfied(self) -> bool:
+        """Return True when this Step's work is already done; pipeline skips it.
+
+        Default probes the App's wait_target with wait_condition via
+        ``kubectl wait --timeout=0s`` — instant, no polling. Steps without an
+        App, without a wait_target, or with custom idempotency override this.
+        """
+        if self.app is None or self.app.wait_target is None:
+            return False
+        return kubectl.probe(
+            self.app.wait_target,
+            self.app.wait_condition.value,
+            namespace=self.app.namespace,
+        )
 
     def pre_validate(self) -> None:
         return None
@@ -188,6 +207,11 @@ def build_setup_pipeline(steps: Sequence[Step]) -> Callable[[], None]:
         for step in plan:
             typer.echo(f"\n==> {step.name}...")
             try:
+                if step.is_satisfied():
+                    typer.echo("    (already satisfied, skipping)")
+                    if step.always_run_post:
+                        step.post()
+                    continue
                 step.pre_validate()
                 step.pre()
                 step.run()

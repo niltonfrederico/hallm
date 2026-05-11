@@ -171,6 +171,57 @@ class TestStepDefaults:
         assert s.post_validate() is None
 
 
+class TestStepIsSatisfied:
+    def test_false_without_app(self) -> None:
+        class _S(Step):
+            name: ClassVar[str] = "x"
+
+        assert _S().is_satisfied() is False
+
+    def test_false_without_wait_target(self) -> None:
+        class _App(App):
+            name: ClassVar[str] = "x"
+
+        class _S(Step):
+            name: ClassVar[str] = "x"
+            app: App | None = _App()
+
+        assert _S().is_satisfied() is False
+
+    def test_delegates_to_kubectl_probe(self) -> None:
+        class _App(App):
+            name: ClassVar[str] = "x"
+            namespace: ClassVar[str] = "ns"
+            wait_target: ClassVar[str | None] = "deploy/x"
+            wait_condition: ClassVar[WaitCondition] = WaitCondition.READY
+
+        class _S(Step):
+            name: ClassVar[str] = "x"
+            app: App | None = _App()
+
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.base.kubectl.probe",
+            return_value=True,
+        ) as mock_probe:
+            assert _S().is_satisfied() is True
+        mock_probe.assert_called_once_with("deploy/x", "Ready", namespace="ns")
+
+    def test_returns_probe_false(self) -> None:
+        class _App(App):
+            name: ClassVar[str] = "x"
+            wait_target: ClassVar[str | None] = "deploy/x"
+
+        class _S(Step):
+            name: ClassVar[str] = "x"
+            app: App | None = _App()
+
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.base.kubectl.probe",
+            return_value=False,
+        ):
+            assert _S().is_satisfied() is False
+
+
 # ---------------------------------------------------------------------------
 # build_setup_pipeline
 # ---------------------------------------------------------------------------
@@ -296,6 +347,87 @@ class TestBuildSetupPipelineSynthesis:
         assert "uses-secrets-2" in names[2]
         # Only one sync.
         assert sum("Syncing secrets" in n for n in names) == 1
+
+
+class TestBuildSetupPipelineSkip:
+    def test_satisfied_step_skips_lifecycle(self, fake_k8s: Path) -> None:
+        for f in fake_k8s.glob("*.yaml"):
+            if f.name != "registries.yaml":
+                f.unlink()
+
+        called: list[str] = []
+
+        class _S(Step):
+            name: ClassVar[str] = "satisfied"
+
+            def is_satisfied(self) -> bool:
+                return True
+
+            def pre(self) -> None:
+                called.append("pre")
+
+            def run(self) -> None:
+                called.append("run")
+
+            def post_validate(self) -> None:
+                called.append("post_validate")
+
+            def post(self) -> None:
+                called.append("post")
+
+        pipeline = build_setup_pipeline([_S()])
+        pipeline()
+        assert called == []
+
+    def test_satisfied_with_always_run_post_runs_post(self, fake_k8s: Path) -> None:
+        for f in fake_k8s.glob("*.yaml"):
+            if f.name != "registries.yaml":
+                f.unlink()
+
+        called: list[str] = []
+
+        class _S(Step):
+            name: ClassVar[str] = "satisfied-post"
+            always_run_post: ClassVar[bool] = True
+
+            def is_satisfied(self) -> bool:
+                return True
+
+            def run(self) -> None:
+                called.append("run")
+
+            def post(self) -> None:
+                called.append("post")
+
+        pipeline = build_setup_pipeline([_S()])
+        pipeline()
+        assert called == ["post"]
+
+    def test_unsatisfied_step_runs_full_lifecycle(self, fake_k8s: Path) -> None:
+        for f in fake_k8s.glob("*.yaml"):
+            if f.name != "registries.yaml":
+                f.unlink()
+
+        called: list[str] = []
+
+        class _S(Step):
+            name: ClassVar[str] = "unsatisfied"
+
+            def is_satisfied(self) -> bool:
+                return False
+
+            def pre(self) -> None:
+                called.append("pre")
+
+            def run(self) -> None:
+                called.append("run")
+
+            def post(self) -> None:
+                called.append("post")
+
+        pipeline = build_setup_pipeline([_S()])
+        pipeline()
+        assert called == ["pre", "run", "post"]
 
 
 class TestBuildSetupPipelineRollback:

@@ -173,6 +173,35 @@ class TestWait:
 
 
 # ---------------------------------------------------------------------------
+# probe
+# ---------------------------------------------------------------------------
+
+
+class TestProbe:
+    def test_returns_true_on_success(self) -> None:
+        with patch("subprocess.run", return_value=_cp()):
+            assert kubectl.probe("deploy/foo", "Available") is True
+
+    def test_returns_false_on_failure(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1)):
+            assert kubectl.probe("deploy/foo", "Available") is False
+
+    def test_uses_zero_second_timeout(self) -> None:
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            kubectl.probe("deploy/foo", "Available")
+        cmd = mock.call_args.args[0]
+        assert "--timeout=0s" in cmd
+
+    def test_passes_condition_resource_and_namespace(self) -> None:
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            kubectl.probe("deploy/foo", "Ready", namespace="kube-system")
+        cmd = mock.call_args.args[0]
+        assert "--for=condition=Ready" in cmd
+        assert "deploy/foo" in cmd
+        assert cmd[cmd.index("-n") + 1] == "kube-system"
+
+
+# ---------------------------------------------------------------------------
 # rollout_restart
 # ---------------------------------------------------------------------------
 
