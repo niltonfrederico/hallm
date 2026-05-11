@@ -11,6 +11,10 @@ from hallm.core.settings import settings
 class CreateClusterStep(Step):
     name: ClassVar[str] = "Creating k3d cluster (first run may take ~10 min)"
 
+    def is_satisfied(self) -> bool:
+        result = _docker.run(["k3d", "cluster", "list", ClusterSettings.NAME, "--no-headers"])
+        return result.returncode == 0 and ClusterSettings.NAME in result.stdout
+
     def run(self) -> None:
         _docker.run_or_fail(
             [

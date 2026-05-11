@@ -430,11 +430,14 @@ class TestBuildSetupPipelineSkip:
         assert called == ["pre", "run", "post"]
 
 
-class TestBuildSetupPipelineRollback:
-    def test_failure_nukes_cluster_and_wraps(self, fake_k8s: Path) -> None:
+class TestBuildSetupPipelineFailure:
+    def _trim_to_registries(self, fake_k8s: Path) -> None:
         for f in fake_k8s.glob("*.yaml"):
             if f.name != "registries.yaml":
                 f.unlink()
+
+    def test_confirm_nuke_yes_runs_nuke_and_raises(self, fake_k8s: Path) -> None:
+        self._trim_to_registries(fake_k8s)
 
         class _Boom(Step):
             name: ClassVar[str] = "boom"
@@ -445,13 +448,64 @@ class TestBuildSetupPipelineRollback:
         pipeline = build_setup_pipeline([_Boom()])
 
         with (
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.base.typer.confirm",
+                return_value=True,
+            ),
             patch("hallm.cli.subcommands.cluster.setup_builders.base._docker.run") as mock_docker,
             pytest.raises(SetupStepError) as info,
         ):
             pipeline()
 
         assert info.value.step_name == "boom"
-        # Verify the nuke command issued.
+        assert "nuked" in str(info.value)
         mock_docker.assert_called_once()
         cmd = mock_docker.call_args.args[0]
         assert cmd[:3] == ["k3d", "cluster", "delete"]
+
+    def test_confirm_nuke_no_continues_and_collects(self, fake_k8s: Path) -> None:
+        self._trim_to_registries(fake_k8s)
+        called: list[str] = []
+
+        class _Boom(Step):
+            name: ClassVar[str] = "boom"
+
+            def run(self) -> None:
+                raise RuntimeError("kaboom")
+
+        class _After(Step):
+            name: ClassVar[str] = "after"
+
+            def run(self) -> None:
+                called.append("after")
+
+        pipeline = build_setup_pipeline([_Boom(), _After()])
+
+        with (
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.base.typer.confirm",
+                return_value=False,
+            ),
+            patch("hallm.cli.subcommands.cluster.setup_builders.base._docker.run") as mock_docker,
+            pytest.raises(SetupStepError) as info,
+        ):
+            pipeline()
+
+        # Subsequent step still ran.
+        assert called == ["after"]
+        # Nuke did NOT fire.
+        mock_docker.assert_not_called()
+        # Summary surfaces the failed step name.
+        assert info.value.step_name == "boom"
+        assert "1 step(s) failed" in str(info.value)
+
+    def test_no_failures_does_not_raise(self, fake_k8s: Path) -> None:
+        self._trim_to_registries(fake_k8s)
+
+        class _Ok(Step):
+            name: ClassVar[str] = "ok"
+
+            def run(self) -> None:
+                return None
+
+        build_setup_pipeline([_Ok()])()  # no exception

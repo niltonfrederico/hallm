@@ -16,8 +16,11 @@ callable, auto-inserting three synthetic phases:
   D — secrets sync: the first Step with needs_secrets=True triggers a
       SyncSecretsStep inserted right before it (once).
 
-Failure during run() is wrapped in SetupStepError; the pipeline runs
-`k3d cluster delete <NAME>` before re-raising (global nuke rollback).
+On Step failure the runner prompts whether to nuke the cluster. Yes →
+`k3d cluster delete <NAME>` runs and SetupStepError raises. No → the
+failure is recorded and the loop continues; at the end the runner raises
+SetupStepError with a summary so a subsequent `hallm cluster setup` can
+retry only the failed Steps (via is_satisfied gating).
 """
 
 from abc import ABCMeta
@@ -204,6 +207,7 @@ def build_setup_pipeline(steps: Sequence[Step]) -> Callable[[], None]:
             plan.append(BootstrapNamespacesStep(namespaces))
 
     def run() -> None:
+        failures: list[tuple[str, Exception]] = []
         for step in plan:
             typer.echo(f"\n==> {step.name}...")
             try:
@@ -218,10 +222,20 @@ def build_setup_pipeline(steps: Sequence[Step]) -> Callable[[], None]:
                 step.post_validate()
                 step.post()
             except Exception as exc:
-                typer.echo(f"\n==> Nuking cluster after failure in '{step.name}'...")
-                _docker.run(["k3d", "cluster", "delete", ClusterSettings.NAME])
-                raise SetupStepError(
-                    f"Setup step '{step.name}' failed", step_name=step.name
-                ) from exc
+                typer.echo(f"\n[ERROR] Step '{step.name}' failed: {exc}", err=True)
+                if typer.confirm("    Nuke cluster?", default=False):
+                    _docker.run(["k3d", "cluster", "delete", ClusterSettings.NAME])
+                    raise SetupStepError(
+                        f"Setup step '{step.name}' failed; cluster nuked",
+                        step_name=step.name,
+                    ) from exc
+                typer.echo("    Continuing with remaining steps; re-run setup to retry.")
+                failures.append((step.name, exc))
+
+        if failures:
+            typer.echo("\n==> Steps that failed (re-run `hallm cluster setup` to retry):")
+            for name, exc in failures:
+                typer.echo(f"  - {name}: {exc}")
+            raise SetupStepError(f"{len(failures)} step(s) failed", step_name=failures[0][0])
 
     return run

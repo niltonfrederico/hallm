@@ -135,6 +135,29 @@ class TestCreateClusterStep:
         cmd = mock.call_args.args[0]
         assert cmd[:3] == ["k3d", "cluster", "create"]
 
+    def test_is_satisfied_true_when_cluster_listed(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.create_cluster._docker.run",
+            return_value=_cp(stdout="hallm  1/1  1/1\n"),
+        ) as mock:
+            assert CreateClusterStep().is_satisfied() is True
+        cmd = mock.call_args.args[0]
+        assert cmd[:3] == ["k3d", "cluster", "list"]
+
+    def test_is_satisfied_false_on_nonzero_exit(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.create_cluster._docker.run",
+            return_value=_cp(returncode=1, stdout=""),
+        ):
+            assert CreateClusterStep().is_satisfied() is False
+
+    def test_is_satisfied_false_when_name_missing(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.create_cluster._docker.run",
+            return_value=_cp(stdout="othercluster  0/1\n"),
+        ):
+            assert CreateClusterStep().is_satisfied() is False
+
 
 class TestWaitApiStep:
     def test_marker_flag(self) -> None:
@@ -158,6 +181,20 @@ class TestWaitApiStep:
             pytest.raises(typer.Exit),
         ):
             WaitApiStep().run()
+
+    def test_is_satisfied_true_when_kubectl_get_nodes_succeeds(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.wait_api._run",
+            return_value=_cp(),
+        ):
+            assert WaitApiStep().is_satisfied() is True
+
+    def test_is_satisfied_false_when_kubectl_fails(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.wait_api._run",
+            return_value=_cp(returncode=1),
+        ):
+            assert WaitApiStep().is_satisfied() is False
 
 
 class TestTrustDockerCaStep:

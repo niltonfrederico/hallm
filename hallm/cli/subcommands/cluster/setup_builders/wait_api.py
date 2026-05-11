@@ -16,6 +16,9 @@ class WaitApiStep(Step):
     name: ClassVar[str] = "Waiting for Kubernetes API server"
     is_cluster_ready_marker: ClassVar[bool] = True
 
+    def is_satisfied(self) -> bool:
+        return _run(["kubectl", "get", "nodes"]).returncode == 0
+
     def run(self) -> None:
         ready = poll_until(
             lambda: _run(["kubectl", "get", "nodes"]).returncode == 0,
