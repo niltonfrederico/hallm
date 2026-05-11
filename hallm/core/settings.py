@@ -127,4 +127,33 @@ class Settings:
         return self._build_database_url("asyncpg")
 
 
+class ClusterSettings:
+    """Constants for the hallm k3d cluster lifecycle.
+
+    Accessed as class attributes (`ClusterSettings.NAME`); no singleton.
+    All values are immutable knobs the setup pipeline reads — never overridden
+    at runtime.
+    """
+
+    NAME: str = "hallm"
+    DEFAULT_NAMESPACE: str = "default"
+    UNREGISTRY_HOST: str = "unregistry.hallm.local"
+
+    DEVICE_PLUGIN_URL: str = (
+        "https://raw.githubusercontent.com/ROCm/k8s-device-plugin/master/k8s-ds-amdgpu-dp.yaml"
+    )
+    CERT_MANAGER_URL: str = (
+        "https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml"
+    )
+
+    # Base namespaces always created during setup, even if no Step declares them.
+    # Step-declared namespaces (e.g. "signoz" from SignozStep) are unioned in
+    # by build_setup_pipeline — they don't need to be listed here.
+    REQUIRED_NAMESPACES: tuple[str, ...] = ("docs",)
+
+    GPU_DEVICES: tuple[Path, ...] = (Path("/dev/kfd"), Path("/dev/dri/renderD128"))
+    CGROUP_DELEGATE_FILE: Path = Path("/etc/systemd/system/user@.service.d/delegate.conf")
+    REQUIRED_CGROUP_CONTROLLERS: frozenset[str] = frozenset({"cpu", "cpuset", "io"})
+
+
 settings = Settings()
