@@ -26,7 +26,7 @@ def bootstrap_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def job_manifest(k8s_dir: Path) -> Path:
-    """A db-bootstrap.yaml under k8s_dir/jobs so .relative_to(ROOT_PATH) works."""
+    """A db-bootstrap.yaml under k8s_dir/jobs so .relative_to(repo_root) works."""
     jobs = k8s_dir / "jobs"
     jobs.mkdir()
     f = jobs / "db-bootstrap.yaml"
@@ -59,7 +59,7 @@ class TestBootstrap:
         #   6) kubectl logs job/db-bootstrap ...
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", bootstrap_dir),
-            patch("hallm.cli.subcommands.db._JOB_MANIFEST", job_manifest),
+            patch("hallm.cli.subcommands.db._job_manifest", return_value=job_manifest),
             patch("subprocess.run", return_value=_cp()) as mock,
         ):
             result = runner.invoke(app, [])
@@ -94,7 +94,7 @@ class TestBootstrap:
     ) -> None:
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", bootstrap_dir),
-            patch("hallm.cli.subcommands.db._JOB_MANIFEST", job_manifest),
+            patch("hallm.cli.subcommands.db._job_manifest", return_value=job_manifest),
             patch("subprocess.run", return_value=_cp(returncode=1, stderr="kubectl: not found")),
         ):
             result = runner.invoke(app, [])
@@ -110,7 +110,7 @@ class TestBootstrap:
         calls = [_cp(), _cp(), _cp(), _cp(returncode=1, stderr="boom")]
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", bootstrap_dir),
-            patch("hallm.cli.subcommands.db._JOB_MANIFEST", job_manifest),
+            patch("hallm.cli.subcommands.db._job_manifest", return_value=job_manifest),
             patch("subprocess.run", side_effect=calls),
         ):
             result = runner.invoke(app, [])
@@ -125,7 +125,7 @@ class TestBootstrap:
         calls = [_cp(), _cp(), _cp(), _cp(), _cp(returncode=1, stderr="timeout"), _cp()]
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", bootstrap_dir),
-            patch("hallm.cli.subcommands.db._JOB_MANIFEST", job_manifest),
+            patch("hallm.cli.subcommands.db._job_manifest", return_value=job_manifest),
             patch("subprocess.run", side_effect=calls),
         ):
             result = runner.invoke(app, [])
@@ -140,7 +140,7 @@ class TestBootstrap:
         calls = [_cp(), _cp(), _cp(), _cp(), _cp(), _cp(returncode=1, stderr="no pod")]
         with (
             patch("hallm.cli.subcommands.db._BOOTSTRAP_PATH", bootstrap_dir),
-            patch("hallm.cli.subcommands.db._JOB_MANIFEST", job_manifest),
+            patch("hallm.cli.subcommands.db._job_manifest", return_value=job_manifest),
             patch("subprocess.run", side_effect=calls),
         ):
             result = runner.invoke(app, [])

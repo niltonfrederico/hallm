@@ -1,5 +1,7 @@
 """Database subcommands."""
 
+from pathlib import Path
+
 import typer
 
 from hallm.cli.base import kubectl
@@ -10,11 +12,16 @@ from hallm.core.settings import settings
 
 app = typer.Typer(help="Database operations.", no_args_is_help=True)
 
+# Package-data: CLI_PATH is derived from this file's location, always valid.
 _BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "_bootstrap"
-_JOB_MANIFEST = settings.K8S_PATH / "jobs" / "db-bootstrap.yaml"
 _CONFIGMAP_NAME = "hallm-bootstrap-sql"
 _JOB_NAME = "db-bootstrap"
 _NAMESPACE = "default"
+
+
+def _job_manifest() -> Path:
+    """Path to the bootstrap Job manifest — lazy so import doesn't need a repo."""
+    return settings.k8s_path / "jobs" / "db-bootstrap.yaml"
 
 
 def _sync_bootstrap_configmap() -> None:
@@ -67,8 +74,9 @@ def _run_bootstrap() -> None:
     typer.echo(f"==> Removing any prior '{_JOB_NAME}' Job...")
     _delete_prior_job()
 
-    typer.echo(f"==> Applying {_JOB_MANIFEST.relative_to(settings.ROOT_PATH)}...")
-    kubectl.apply(_JOB_MANIFEST.read_text(), label=_JOB_NAME)
+    manifest = _job_manifest()
+    typer.echo(f"==> Applying {manifest.relative_to(settings.repo_root)}...")
+    kubectl.apply(manifest.read_text(), label=_JOB_NAME)
 
     typer.echo("==> Waiting for Job to complete...")
     wait_cmd = [

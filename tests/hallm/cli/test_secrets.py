@@ -123,7 +123,7 @@ class TestPrepare:
         monkeypatch: pytest.MonkeyPatch,
         runner: CliRunner,
     ) -> None:
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
         result = runner.invoke(app, ["prepare"])
         assert result.exit_code == 1
         assert "No .env found" in result.output
@@ -134,7 +134,7 @@ class TestPrepare:
         src = tmp_path / ".env"
         src.write_text("ENVIRONMENT=localhost\n")
         missing = tmp_path / "new-hallm"
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
         monkeypatch.setattr(settings, "SECRETS_PATH", missing)
 
         result = runner.invoke(app, ["prepare"])
@@ -151,7 +151,7 @@ class TestPrepare:
     ) -> None:
         src = tmp_path / ".env"
         src.write_text("ENVIRONMENT=localhost\n")
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
 
         result = runner.invoke(app, ["prepare"])
 
@@ -197,7 +197,7 @@ class TestPrepare:
     ) -> None:
         src = tmp_path / ".env"
         src.write_text(f"{input_line}\nENVIRONMENT=localhost\n")
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
 
         runner.invoke(app, ["prepare"])
 
@@ -215,7 +215,7 @@ class TestPrepare:
     ) -> None:
         src = tmp_path / ".env"
         src.write_text("ENVIRONMENT=localhost\nDEBUG=false\n")
-        monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
 
         runner.invoke(app, ["prepare"])
 

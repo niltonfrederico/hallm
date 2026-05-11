@@ -38,7 +38,7 @@ def _restore_cerberus_from_files(pem_path: Path, key_path: Path) -> None:
             "yaml",
         ],
     )
-    issuer_manifest = (settings.K8S_PATH / "adhoc" / "cerberus-ca-issuer.yaml").read_text()
+    issuer_manifest = (settings.k8s_path / "adhoc" / "cerberus-ca-issuer.yaml").read_text()
     kubectl.apply(issuer_manifest, label="Cerberus CA ClusterIssuer")
 
 
@@ -181,7 +181,7 @@ def prepare() -> None:
     the cluster-internal database host.  The result is written to ~/.hallm/.env
     so that `hallm secrets apply` picks it up as the 'hallm-env' Secret.
     """
-    src = settings.ROOT_PATH / ".env"
+    src = settings.repo_root / ".env"
     if not src.exists():
         _fail(f"No .env found at {src}")
 

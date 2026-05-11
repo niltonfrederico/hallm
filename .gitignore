@@ -16,3 +16,4 @@ htmlcov/
 .DS_Store
 .keyring/
 coverage.xml
+.remember/

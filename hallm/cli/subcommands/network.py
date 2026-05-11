@@ -26,10 +26,20 @@ app = typer.Typer(help="Local Caddy + dnsmasq network setup.", no_args_is_help=T
 # Constants
 # ---------------------------------------------------------------------------
 
-_NETWORK_DIR = settings.ROOT_PATH / "network"
-_REPO_CADDYFILE = _NETWORK_DIR / "Caddyfile"
-_REPO_DNSMASQ = _NETWORK_DIR / "dnsmasq.d"
-_REPO_UNIT_TPL = _NETWORK_DIR / "hallm-caddy.service.tpl"
+
+# Repo-relative paths are resolved lazily so importing this module doesn't
+# require a discoverable hallm checkout (e.g. for `hallm mcp serve`).
+def _repo_caddyfile() -> Path:
+    return settings.network_path / "Caddyfile"
+
+
+def _repo_dnsmasq() -> Path:
+    return settings.network_path / "dnsmasq.d"
+
+
+def _repo_unit_tpl() -> Path:
+    return settings.network_path / "hallm-caddy.service.tpl"
+
 
 _SYSTEM_CADDYFILE = Path("/etc/caddy/Caddyfile")
 _SYSTEM_DNSMASQ = Path("/etc/dnsmasq.d/hallm.conf")
@@ -58,7 +68,7 @@ def _resolve_caddy_bin() -> str:
 
 
 def _render_unit(caddy_bin: str) -> str:
-    return _render(_REPO_UNIT_TPL.read_text(), {"CADDY_BIN": caddy_bin})
+    return _render(_repo_unit_tpl().read_text(), {"CADDY_BIN": caddy_bin})
 
 
 def _resolve_a(host: str) -> str | None:
@@ -98,7 +108,10 @@ def apply() -> None:
 
     Uses sudo for /etc writes and systemctl reloads.
     """
-    for path in (_REPO_CADDYFILE, _REPO_DNSMASQ, _REPO_UNIT_TPL):
+    caddyfile = _repo_caddyfile()
+    dnsmasq = _repo_dnsmasq()
+    unit_tpl = _repo_unit_tpl()
+    for path in (caddyfile, dnsmasq, unit_tpl):
         if not path.is_file():
             _fail(f"Missing repo file: {path}")
 
@@ -106,19 +119,19 @@ def apply() -> None:
 
     typer.echo("==> Validating Caddyfile...")
     _run_or_fail(
-        [caddy_bin, "validate", "--config", str(_REPO_CADDYFILE), "--adapter", "caddyfile"],
+        [caddy_bin, "validate", "--config", str(caddyfile), "--adapter", "caddyfile"],
         "Caddyfile failed validation",
     )
 
     typer.echo(f"\n==> Installing {_SYSTEM_CADDYFILE}...")
     _run_or_fail(
-        ["sudo", "install", "-Dm", "0644", str(_REPO_CADDYFILE), str(_SYSTEM_CADDYFILE)],
+        ["sudo", "install", "-Dm", "0644", str(caddyfile), str(_SYSTEM_CADDYFILE)],
         f"Failed to install {_SYSTEM_CADDYFILE}",
     )
 
     typer.echo(f"\n==> Installing {_SYSTEM_DNSMASQ}...")
     _run_or_fail(
-        ["sudo", "install", "-Dm", "0644", str(_REPO_DNSMASQ), str(_SYSTEM_DNSMASQ)],
+        ["sudo", "install", "-Dm", "0644", str(dnsmasq), str(_SYSTEM_DNSMASQ)],
         f"Failed to install {_SYSTEM_DNSMASQ}",
     )
 
@@ -172,11 +185,11 @@ def health() -> None:
     typer.echo("\n==> Installed configs match repo")
     all_ok &= _check(
         f"{_SYSTEM_CADDYFILE} matches network/Caddyfile",
-        _file_matches(_SYSTEM_CADDYFILE, _REPO_CADDYFILE),
+        _file_matches(_SYSTEM_CADDYFILE, _repo_caddyfile()),
     )
     all_ok &= _check(
         f"{_SYSTEM_DNSMASQ} matches network/dnsmasq.d",
-        _file_matches(_SYSTEM_DNSMASQ, _REPO_DNSMASQ),
+        _file_matches(_SYSTEM_DNSMASQ, _repo_dnsmasq()),
     )
 
     typer.echo("\n==> Services")

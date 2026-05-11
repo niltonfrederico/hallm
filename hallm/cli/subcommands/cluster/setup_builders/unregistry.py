@@ -5,13 +5,12 @@ from typing import ClassVar
 
 from hallm.cli.subcommands.cluster.setup_builders.base import App
 from hallm.cli.subcommands.cluster.setup_builders.base import Step
-from hallm.core.settings import settings
 
 
 class UnregistryApp(App):
     name: ClassVar[str] = "Unregistry"
     namespace: ClassVar[str] = "kube-system"
-    manifest_path: ClassVar[Path | None] = settings.K8S_PATH / "unregistry.yaml"
+    manifest_path: ClassVar[Path | None] = Path("unregistry.yaml")
     # DaemonSet — readiness verified by `hallm cluster healthcheck`.
 
 

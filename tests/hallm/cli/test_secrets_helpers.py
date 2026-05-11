@@ -27,7 +27,7 @@ class TestRestoreCerberusFromFiles:
         k8s = tmp_path / "k8s"
         (k8s / "adhoc").mkdir(parents=True)
         (k8s / "adhoc" / "cerberus-ca-issuer.yaml").write_text("kind: ClusterIssuer\n")
-        monkeypatch.setattr(settings, "K8S_PATH", k8s)
+        monkeypatch.setattr(settings, "k8s_path", k8s)
 
         with (
             patch("hallm.cli.subcommands.secrets.kubectl.apply_from_cmd") as mock_apply_from_cmd,

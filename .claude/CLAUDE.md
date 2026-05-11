@@ -143,9 +143,12 @@ plus `_check(response)` come for free.
 ## Common commands
 
 ```bash
-uv sync                          # install / refresh deps
-uv run hallm                     # show CLI help
-uv run hallm mcp serve           # start the MCP server
+uv sync                                # install / refresh deps
+uv tool install --editable .           # install hallm globally (first time only)
+uv run hallm                           # show CLI help (from inside the repo)
+hallm                                  # show CLI help (anywhere, after the global install)
+hallm install                          # re-run uv tool install --editable + record ~/.hallm/repo
+uv run hallm mcp serve                 # start the MCP server
 docker compose --profile test run --rm tests              # run unit tests (≥ 98 % branch coverage)
 docker compose --profile test run --rm integration-tests  # run integration tests
 docker compose --profile lint run --rm lint               # run linters and formatters
@@ -154,6 +157,27 @@ uv run tortoise migrate          # apply pending migrations
 docker compose up postgres -d    # start Postgres only
 docker compose up --build        # full stack
 ```
+
+### Working outside the repo
+
+After `hallm install`, the CLI is on `$PATH` everywhere. Workspace-bound
+commands locate the active checkout in this order:
+
+1. `$HALLM_REPO` env var.
+2. Walk-up from cwd — the first ancestor whose `pyproject.toml` declares
+   `name = "hallm"` wins.
+3. `~/.hallm/repo` (a text file with the absolute path — written by
+   `hallm install`).
+
+Commands that work from any cwd, with or without a discoverable repo:
+`mcp serve`, `k8s preflight`, `k8s nuke`, `k8s get-cert`, `secrets sync`,
+and `container build/deploy/remove` when a manifest/Dockerfile **path** is
+passed instead of a name. `k8s healthcheck` skips smoke tests with a notice
+when no checkout is found.
+
+Commands that require a discoverable repo: `k8s setup`, `network apply`,
+`db bootstrap`, `signoz install`, and any `container deploy/remove <name>`
+form (which resolves against `$repo/k8s/<name>.yaml`).
 
 ## Local Kubernetes cluster (k8s namespace)
 

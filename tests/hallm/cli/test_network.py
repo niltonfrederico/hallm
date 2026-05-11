@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 
 from hallm.cli.subcommands import network
 from hallm.cli.subcommands.network import app
+from hallm.core.settings import settings
 from tests.mocks import completed_process as _cp
 
 # ---------------------------------------------------------------------------
@@ -31,10 +32,8 @@ def network_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     unit_tpl = nd / "hallm-caddy.service.tpl"
     unit_tpl.write_text("ExecStart=##CADDY_BIN## run\n")
 
-    monkeypatch.setattr(network, "_NETWORK_DIR", nd)
-    monkeypatch.setattr(network, "_REPO_CADDYFILE", caddyfile)
-    monkeypatch.setattr(network, "_REPO_DNSMASQ", dnsmasq)
-    monkeypatch.setattr(network, "_REPO_UNIT_TPL", unit_tpl)
+    monkeypatch.setattr(settings, "repo_root", tmp_path)
+    monkeypatch.setattr(settings, "network_path", nd)
     return nd
 
 

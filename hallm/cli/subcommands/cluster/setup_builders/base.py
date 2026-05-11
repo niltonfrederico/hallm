@@ -51,6 +51,16 @@ class SetupStepError(Exception):
         self.step_name = step_name
 
 
+def _resolve_manifest(path: Path) -> Path:
+    """Resolve `path` against ``settings.k8s_path`` if relative, else use as-is.
+
+    Subclasses set ``manifest_path = Path("foo.yaml")`` to point at a manifest
+    inside the repo's ``k8s/`` directory; the actual ``k8s_path`` is looked up
+    lazily here so importing builders never forces repo discovery.
+    """
+    return path if path.is_absolute() else settings.k8s_path / path
+
+
 class App(metaclass=ABCMeta):
     """Declarative description of an installable cluster component.
 
@@ -64,6 +74,7 @@ class App(metaclass=ABCMeta):
     namespace: ClassVar[str] = ClusterSettings.DEFAULT_NAMESPACE
 
     # Manifest source — pick exactly one (or override install()).
+    # Relative paths resolve against settings.k8s_path at consumption time.
     manifest_path: ClassVar[Path | None] = None
     manifest_url: ClassVar[str | None] = None
 
@@ -74,7 +85,7 @@ class App(metaclass=ABCMeta):
 
     def install(self) -> None:
         if self.manifest_path is not None:
-            kubectl.apply(self.manifest_path.read_text(), label=self.name)
+            kubectl.apply(_resolve_manifest(self.manifest_path).read_text(), label=self.name)
             return
         if self.manifest_url is not None:
             kubectl.apply_url(self.manifest_url)
@@ -130,10 +141,12 @@ class Step(metaclass=ABCMeta):
 
 def _validate_manifest_claims(steps: Sequence[Step]) -> None:
     claimed: set[Path] = {
-        s.app.manifest_path for s in steps if s.app is not None and s.app.manifest_path is not None
+        _resolve_manifest(s.app.manifest_path)
+        for s in steps
+        if s.app is not None and s.app.manifest_path is not None
     }
-    all_manifests: set[Path] = set(settings.K8S_PATH.glob("*.yaml"))
-    unclaimed = sorted(all_manifests - claimed - {settings.K8S_PATH / "registries.yaml"})
+    all_manifests: set[Path] = set(settings.k8s_path.glob("*.yaml"))
+    unclaimed = sorted(all_manifests - claimed - {settings.k8s_path / "registries.yaml"})
     if unclaimed:
         names = sorted(p.name for p in unclaimed)
         raise SetupStepError(

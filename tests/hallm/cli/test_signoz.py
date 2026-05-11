@@ -209,7 +209,7 @@ _EXPECTED_SIGNOZ_SERVICES: tuple[str, ...] = (
 
 def test_signoz_extras_manifest_assigns_service_name_per_deployment() -> None:
     """Archived signoz-extras still maps each scrape target to its own service.name."""
-    manifest = (settings.K8S_PATH / "archived" / "signoz-extras.yaml").read_text()
+    manifest = (settings.k8s_path / "archived" / "signoz-extras.yaml").read_text()
     for name in _EXPECTED_SIGNOZ_SERVICES:
         assert f"resource/{name}:" in manifest
         assert f"metrics/{name}:" in manifest
@@ -218,7 +218,7 @@ def test_signoz_extras_manifest_assigns_service_name_per_deployment() -> None:
 
 def test_signoz_values_enables_logs_and_label_based_service_name() -> None:
     """Archived k8s-infra values still collect pod logs and promote the `app` label."""
-    values = (settings.K8S_PATH / "archived" / "helm" / "k8s-infra-values.yaml").read_text()
+    values = (settings.k8s_path / "archived" / "helm" / "k8s-infra-values.yaml").read_text()
     assert "logsCollection:" in values
     assert "extractLabels:" in values
     assert "tag_name: service.name" in values

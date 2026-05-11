@@ -16,12 +16,20 @@ def runner() -> CliRunner:
 
 @pytest.fixture
 def k8s_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Temp k8s manifests directory with a fake ollama manifest."""
+    """Temp k8s manifests directory with a fake ollama manifest.
+
+    Overrides the cached_property values directly on the singleton — the
+    monkeypatch teardown clears them from ``settings.__dict__`` so production
+    code in the same test session resolves through ``workspace.require_repo``
+    again.
+    """
     k8s = tmp_path / "k8s"
     k8s.mkdir()
     (k8s / "ollama.yaml").write_text("apiVersion: v1\nkind: Namespace")
-    monkeypatch.setattr(settings, "K8S_PATH", k8s)
-    monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+    monkeypatch.setattr(settings, "repo_root", tmp_path)
+    monkeypatch.setattr(settings, "k8s_path", k8s)
+    monkeypatch.setattr(settings, "docker_path", tmp_path / "docker")
+    monkeypatch.setattr(settings, "network_path", tmp_path / "network")
     return k8s
 
 

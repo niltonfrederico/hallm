@@ -22,7 +22,7 @@ class CerberusPkiApp(App):
 
     name: ClassVar[str] = "Cerberus PKI"
     namespace: ClassVar[str] = "cert-manager"
-    manifest_path: ClassVar[Path | None] = settings.K8S_PATH / "cerberus.yaml"
+    manifest_path: ClassVar[Path | None] = Path("cerberus.yaml")
     wait_target: ClassVar[str | None] = "certificate/cerberus-ca"
     wait_condition: ClassVar[WaitCondition] = WaitCondition.READY
     wait_timeout: ClassVar[int] = 60

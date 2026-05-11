@@ -5,6 +5,8 @@ from pathlib import Path
 
 from environs import Env
 
+from hallm.core import workspace
+
 env = Env()
 env.read_env()
 
@@ -17,17 +19,41 @@ class Settings:
     database connection bits have no defaults and are read on first access via
     :class:`functools.cached_property`, so each :class:`Settings` instance can
     pick up monkeypatched env vars in tests.
+
+    Repo-bound paths (:attr:`repo_root`, :attr:`k8s_path`, :attr:`docker_path`,
+    :attr:`network_path`) are resolved lazily via :mod:`hallm.core.workspace`,
+    so importing this module never fails outside a checkout — only accessing
+    those attributes does.
     """
 
     # ------------------------------------------------------------------
-    # Paths (derived from this file's location)
+    # Package-relative paths (derived from this file's location;
+    # always valid regardless of where hallm is installed from)
     # ------------------------------------------------------------------
-    # hallm/core/settings.py → hallm/core/ → hallm/ → repo root
-    ROOT_PATH: Path = Path(__file__).parent.parent.parent
-    PROJECT_PATH: Path = ROOT_PATH / "hallm"
+    # hallm/core/settings.py → hallm/core/ → hallm/
+    PROJECT_PATH: Path = Path(__file__).parent.parent
     CLI_PATH: Path = PROJECT_PATH / "cli"
-    K8S_PATH: Path = ROOT_PATH / "k8s"
     SECRETS_PATH: Path = Path.home() / ".hallm"
+
+    # ------------------------------------------------------------------
+    # Workspace-bound paths (resolved on first access; require a discoverable
+    # hallm checkout — see hallm.core.workspace.require_repo)
+    # ------------------------------------------------------------------
+    @cached_property
+    def repo_root(self) -> Path:
+        return workspace.require_repo()
+
+    @cached_property
+    def k8s_path(self) -> Path:
+        return self.repo_root / "k8s"
+
+    @cached_property
+    def docker_path(self) -> Path:
+        return self.repo_root / "docker"
+
+    @cached_property
+    def network_path(self) -> Path:
+        return self.repo_root / "network"
 
     # Local SSD used as persistent storage backing for the k3d cluster.
     # The device is mounted at STORAGE_MOUNT_PATH and bind-mounted into k3s nodes

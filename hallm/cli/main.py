@@ -12,6 +12,7 @@ from hallm.cli.subcommands import network
 from hallm.cli.subcommands import secrets
 from hallm.cli.subcommands import seed
 from hallm.cli.subcommands import signoz
+from hallm.core import workspace
 from hallm.core.observability import init_observability
 from hallm.core.settings import settings
 
@@ -35,15 +36,24 @@ def _callback(ctx: typer.Context) -> None:
 
 @app.command()
 def install() -> None:
-    """Reinstall hallm into pipx from the current source tree."""
-    result = _run(["pipx", "uninstall", "hallm"])
-    if result.returncode == 0:
-        typer.echo("Uninstalled existing hallm from pipx.")
+    """Reinstall hallm globally via `uv tool install --editable`.
+
+    Records the resolved checkout path in ``~/.hallm/repo`` so workspace-bound
+    commands invoked from any cwd find this checkout when env var and walk-up
+    discovery both miss.
+    """
+    repo = workspace.require_repo()
+
+    _run(["uv", "tool", "uninstall", "hallm"])
     _run_or_fail(
-        ["pipx", "install", "--editable", str(settings.ROOT_PATH)],
-        "pipx install failed",
+        ["uv", "tool", "install", "--editable", str(repo)],
+        "uv tool install failed",
     )
-    typer.echo("hallm installed via pipx.")
+
+    settings.SECRETS_PATH.mkdir(parents=True, exist_ok=True)
+    pointer = settings.SECRETS_PATH / "repo"
+    pointer.write_text(f"{repo}\n")
+    typer.echo(f"hallm installed via uv tool. Repo recorded at {pointer}: {repo}")
 
 
 def main() -> None:

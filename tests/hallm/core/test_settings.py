@@ -1,7 +1,10 @@
 """Unit tests for hallm.core.settings."""
 
+from pathlib import Path
+
 import pytest
 
+from hallm.core import workspace
 from hallm.core.settings import Settings
 
 # Settings has class-level attributes for env-driven values with defaults.
@@ -10,28 +13,37 @@ from hallm.core.settings import Settings
 
 
 # ---------------------------------------------------------------------------
-# Path constants
+# Package-relative path constants (always valid, no repo needed)
 # ---------------------------------------------------------------------------
 
 
-class TestPathConstants:
-    def test_root_path_exists(self) -> None:
-        assert Settings.ROOT_PATH.exists()
+class TestPackagePaths:
+    def test_project_path_points_at_hallm_package(self) -> None:
+        assert Settings.PROJECT_PATH.name == "hallm"
+        assert (Settings.PROJECT_PATH / "core" / "settings.py").exists()
 
-    @pytest.mark.parametrize(
-        ("attr", "parent_attr", "suffix"),
-        [
-            ("K8S_PATH", "ROOT_PATH", "k8s"),
-            ("PROJECT_PATH", "ROOT_PATH", "hallm"),
-            ("CLI_PATH", "PROJECT_PATH", "cli"),
-        ],
-        ids=["k8s-under-root", "project-under-root", "cli-under-project"],
-    )
-    def test_path_constant_layout(self, attr: str, parent_attr: str, suffix: str) -> None:
-        assert getattr(Settings, attr) == getattr(Settings, parent_attr) / suffix
+    def test_cli_path_is_under_project(self) -> None:
+        assert Settings.CLI_PATH == Settings.PROJECT_PATH / "cli"
 
     def test_secrets_path_is_under_home(self) -> None:
         assert Settings.SECRETS_PATH.name == ".hallm"
+
+
+# ---------------------------------------------------------------------------
+# Repo-bound paths (lazy, resolved via workspace.require_repo)
+# ---------------------------------------------------------------------------
+
+
+class TestRepoPaths:
+    def test_repo_root_resolves_via_workspace(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(workspace, "find_repo", lambda: tmp_path)
+        s = Settings()
+        assert s.repo_root == tmp_path
+        assert s.k8s_path == tmp_path / "k8s"
+        assert s.docker_path == tmp_path / "docker"
+        assert s.network_path == tmp_path / "network"
 
 
 # ---------------------------------------------------------------------------

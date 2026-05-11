@@ -28,7 +28,7 @@ _K8S_INFRA_RELEASE = "k8s-infra"
 
 
 def _manifest(name: str) -> str:
-    return (settings.K8S_PATH / name).read_text()
+    return (settings.k8s_path / name).read_text()
 
 
 def _add_helm_repo() -> None:
@@ -42,7 +42,7 @@ def _install_helm_release() -> None:
     """Install / upgrade the SigNoz Helm release with hallm's values."""
     _run(["kubectl", "create", "namespace", _SIGNOZ_NAMESPACE])  # idempotent
 
-    values_file = settings.K8S_PATH / "helm" / "signoz-values.yaml"
+    values_file = settings.k8s_path / "helm" / "signoz-values.yaml"
     _run_or_fail(
         [
             "helm",
@@ -65,7 +65,7 @@ def _install_k8s_infra_release() -> None:
     Deploys the cluster receiver + node DaemonSet that feed the SigNoz
     Infrastructure tab and tail /var/log/pods into the Logs tab.
     """
-    values_file = settings.K8S_PATH / "helm" / "k8s-infra-values.yaml"
+    values_file = settings.k8s_path / "helm" / "k8s-infra-values.yaml"
     _run_or_fail(
         [
             "helm",

@@ -9,12 +9,11 @@ from hallm.cli.subcommands import db as _db
 from hallm.cli.subcommands.cluster.setup_builders.base import App
 from hallm.cli.subcommands.cluster.setup_builders.base import Step
 from hallm.cli.subcommands.cluster.setup_builders.base import WaitCondition
-from hallm.core.settings import settings
 
 
 class PostgresApp(App):
     name: ClassVar[str] = "postgres"
-    manifest_path: ClassVar[Path | None] = settings.K8S_PATH / "postgres.yaml"
+    manifest_path: ClassVar[Path | None] = Path("postgres.yaml")
     wait_target: ClassVar[str | None] = "deploy/postgres"
     wait_condition: ClassVar[WaitCondition] = WaitCondition.AVAILABLE
     wait_timeout: ClassVar[int] = 180

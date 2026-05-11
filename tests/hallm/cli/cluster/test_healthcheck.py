@@ -9,17 +9,20 @@ import pytest
 
 import hallm.cli.subcommands.cluster.healthcheck as hc
 from hallm.cli.subcommands.cluster import app
-from hallm.core.settings import settings
 from tests.mocks import completed_process as _cp
 
 
 class TestManifest:
     def test_joins_parts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        sub = tmp_path / "test"
-        sub.mkdir()
-        (sub / "smoke.yaml").write_text("k: v\n")
-        monkeypatch.setattr(settings, "K8S_PATH", tmp_path)
+        k8s = tmp_path / "k8s" / "test"
+        k8s.mkdir(parents=True)
+        (k8s / "smoke.yaml").write_text("k: v\n")
+        monkeypatch.setattr(hc.workspace, "find_repo", lambda: tmp_path)
         assert hc._manifest("test", "smoke.yaml") == "k: v\n"
+
+    def test_returns_none_without_repo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(hc.workspace, "find_repo", lambda: None)
+        assert hc._manifest("test", "smoke.yaml") is None
 
 
 class TestClusterRunningViaK3d:

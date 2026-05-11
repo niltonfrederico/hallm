@@ -35,7 +35,7 @@ class CreateClusterStep(Step):
                 "-p",
                 "10379:6379@loadbalancer",
                 "--registry-config",
-                str(settings.K8S_PATH / "registries.yaml"),
+                str(settings.k8s_path / "registries.yaml"),
                 "--k3s-arg",
                 "--kubelet-arg=feature-gates=KubeletInUserNamespace=true@server:*",
                 "--timeout",

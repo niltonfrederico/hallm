@@ -12,12 +12,16 @@ from hallm.cli.base import docker as _docker
 from hallm.cli.base import kubectl
 from hallm.cli.base.poll import poll_until
 from hallm.cli.base.shell import check as _check
+from hallm.core import workspace
 from hallm.core.settings import ClusterSettings
-from hallm.core.settings import settings
 
 
-def _manifest(*parts: str) -> str:
-    return (settings.K8S_PATH / "/".join(parts)).read_text()
+def _manifest(*parts: str) -> str | None:
+    """Read a smoke-test manifest from the repo, or None if no checkout is discoverable."""
+    repo = workspace.find_repo()
+    if repo is None:
+        return None
+    return (repo / "k8s" / "/".join(parts)).read_text()
 
 
 def _cluster_running_via_k3d() -> bool:
@@ -100,9 +104,13 @@ class _SmokeAborted(Exception):
 
 def _gpu_smoke_test() -> bool:
     """Deploy a GPU-requesting pod, wait for Succeeded, clean up. Return True on pass."""
+    manifest = _manifest("test", "gpu-smoke.yaml")
+    if manifest is None:
+        typer.echo("  [SKIP] No hallm checkout discoverable — GPU smoke test skipped.")
+        return True
     apply = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
-        input=_manifest("test", "gpu-smoke.yaml"),
+        input=manifest,
         text=True,
         capture_output=True,
     )
@@ -150,9 +158,13 @@ def _cleanup_dns_smoke() -> None:
 
 def _dns_smoke_test() -> bool:
     """Deploy nginx + Ingress for test.hallm.local, verify HTTP, clean up. Return True on pass."""
+    manifest = _manifest("test", "dns-smoke.yaml")
+    if manifest is None:
+        typer.echo("  [SKIP] No hallm checkout discoverable — DNS smoke test skipped.")
+        return True
     apply = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
-        input=_manifest("test", "dns-smoke.yaml"),
+        input=manifest,
         text=True,
         capture_output=True,
     )

@@ -37,6 +37,6 @@ def fake_k8s(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (k8s / "adhoc" / "cerberus-ca-issuer.yaml").write_text("kind: ClusterIssuer\n")
     (k8s / "jobs").mkdir()
     (k8s / "jobs" / "db-bootstrap.yaml").write_text("kind: Job\n")
-    monkeypatch.setattr(settings, "K8S_PATH", k8s)
-    monkeypatch.setattr(settings, "ROOT_PATH", tmp_path)
+    monkeypatch.setattr(settings, "repo_root", tmp_path)
+    monkeypatch.setattr(settings, "k8s_path", k8s)
     return k8s

@@ -17,7 +17,8 @@ class TestPublish:
     def test_dockerfile_not_found(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         result = runner.invoke(app, ["publish", "myimage"])
         assert result.exit_code == 1
         assert "Dockerfile not found" in result.output
@@ -26,7 +27,8 @@ class TestPublish:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_dockerfile(tmp_path, "myimage")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         with patch("subprocess.run", return_value=_cp(returncode=1, stderr="buildx error")):
             result = runner.invoke(app, ["publish", "myimage"])
         assert result.exit_code == 1
@@ -36,7 +38,8 @@ class TestPublish:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_dockerfile(tmp_path, "myimage")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["publish", "myimage"])
         assert result.exit_code == 0
@@ -88,7 +91,8 @@ class TestPublish:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_dockerfile(tmp_path, "myimage")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         result = runner.invoke(app, ["publish", "myimage", "--name", "custom"])
         assert result.exit_code == 1
         assert "--name is only valid" in result.output
@@ -100,8 +104,9 @@ class TestDeploy:
     ) -> None:
         k8s = tmp_path / "k8s"
         k8s.mkdir()
-        monkeypatch.setattr(_settings, "K8S_PATH", k8s)
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", k8s)
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         result = runner.invoke(app, ["deploy", "ollama"])
         assert result.exit_code == 1
         assert "No manifest found" in result.output
@@ -110,8 +115,9 @@ class TestDeploy:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_manifest(tmp_path, "ollama")
-        monkeypatch.setattr(_settings, "K8S_PATH", tmp_path / "k8s")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["deploy", "ollama"])
         assert result.exit_code == 0
@@ -125,8 +131,9 @@ class TestDeploy:
     ) -> None:
         write_manifest(tmp_path, "ollama")
         write_dockerfile(tmp_path, "ollama")
-        monkeypatch.setattr(_settings, "K8S_PATH", tmp_path / "k8s")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["deploy", "ollama"])
         assert result.exit_code == 0
@@ -137,13 +144,28 @@ class TestDeploy:
         last_cmd = mock.call_args_list[-1][0][0]
         assert last_cmd == ["kubectl", "apply", "-f", "-"]
 
+    def test_deploy_with_manifest_path_skips_repo_resolution(
+        self, tmp_path: Path, runner: CliRunner
+    ) -> None:
+        manifest = tmp_path / "stand-alone.yaml"
+        manifest.write_text("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: solo\n")
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            result = runner.invoke(app, ["deploy", str(manifest), "--no-build"])
+        assert result.exit_code == 0
+        assert "stand-alone deployed" in result.output
+        # Single kubectl apply — no docker build since target is a path
+        assert mock.call_count == 1
+        apply_cmd = mock.call_args_list[0].args[0]
+        assert apply_cmd == ["kubectl", "apply", "-f", "-"]
+
     def test_deploy_no_build_flag_skips_publish(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
     ) -> None:
         write_manifest(tmp_path, "ollama")
         write_dockerfile(tmp_path, "ollama")
-        monkeypatch.setattr(_settings, "K8S_PATH", tmp_path / "k8s")
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
         with patch("subprocess.run", return_value=_cp()) as mock:
             result = runner.invoke(app, ["deploy", "ollama", "--no-build"])
         assert result.exit_code == 0
@@ -159,8 +181,8 @@ class TestRemove:
     ) -> None:
         empty = tmp_path / "k8s"
         empty.mkdir()
-        monkeypatch.setattr(_settings, "K8S_PATH", empty)
-        monkeypatch.setattr(_settings, "ROOT_PATH", tmp_path)
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", empty)
 
         result = runner.invoke(app, ["remove", "ollama", "--yes"])
 
@@ -233,6 +255,24 @@ class TestRemove:
 
         assert result.exit_code == 1
         assert "Failed to delete" in result.output
+
+    def test_remove_with_manifest_path_works_without_repo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
+        from hallm.cli.subcommands import container as _container
+
+        manifest = tmp_path / "stand-alone.yaml"
+        manifest.write_text("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: solo\n")
+        # find_repo returns None — exercises the "no repo discoverable" fallback for the
+        # 'Resources to remove (from <abs path>)' line.
+        monkeypatch.setattr(_container.workspace, "find_repo", lambda: None)
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout="")] * 5 + [_cp()],
+        ):
+            result = runner.invoke(app, ["remove", str(manifest), "--yes"])
+        assert result.exit_code == 0
+        assert str(manifest) in result.output
 
     def test_label_resources_with_embedded_empty_line(
         self, k8s_dir: Path, runner: CliRunner

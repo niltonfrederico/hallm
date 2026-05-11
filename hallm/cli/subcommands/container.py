@@ -10,6 +10,7 @@ import typer
 from hallm.cli.base import docker as _docker
 from hallm.cli.base import kubectl
 from hallm.cli.base.shell import fail as _fail
+from hallm.core import workspace
 from hallm.core.settings import settings
 
 app = typer.Typer(help="Container image operations.", no_args_is_help=True)
@@ -63,10 +64,10 @@ def _build_and_push(dockerfile: Path, image_name: str, context: Path) -> None:
 
 def _publish(name: str) -> None:
     """Resolve <name> to docker/Dockerfile.<name> and publish."""
-    dockerfile = settings.ROOT_PATH / "docker" / f"Dockerfile.{name}"
+    dockerfile = settings.docker_path / f"Dockerfile.{name}"
     if not dockerfile.exists():
         _fail(f"Dockerfile not found: {dockerfile}")
-    _build_and_push(dockerfile, name, context=settings.ROOT_PATH)
+    _build_and_push(dockerfile, name, context=settings.repo_root)
 
 
 @app.command("publish")
@@ -111,41 +112,63 @@ def publish(
     _publish(target)
 
 
+def _resolve_manifest_target(target: str) -> tuple[Path, str]:
+    """Resolve `target` to (manifest path, label name).
+
+    Two forms:
+      - bare name → ``$repo/k8s/<name>.yaml`` (label = name)
+      - file path → manifest at that path (label = filename stem)
+    """
+    candidate = Path(target)
+    if candidate.is_file():
+        return candidate.resolve(), candidate.stem
+    manifest = settings.k8s_path / f"{target}.yaml"
+    if not manifest.exists():
+        _fail(
+            f"No manifest found at {manifest}. "
+            f"Available: {', '.join(p.stem for p in settings.k8s_path.glob('*.yaml'))}"
+        )
+    return manifest, target
+
+
 @app.command()
 def deploy(
-    name: str = typer.Argument(
-        ..., help="Service name — matches k8s/<name>.yaml and docker/Dockerfile.<name>."
+    target: str = typer.Argument(
+        ...,
+        help=(
+            "Service name (resolved to k8s/<name>.yaml) or a path to a manifest file. "
+            "Auto-build only fires for the name form."
+        ),
     ),
     build: bool = typer.Option(
         True, "--build/--no-build", help="Build and push image before applying."
     ),
 ) -> None:
-    """Apply k8s/<name>.yaml, optionally building and pushing the image first.
+    """Apply k8s/<name>.yaml (or an arbitrary manifest), optionally building first.
 
     If a docker/Dockerfile.<name> exists and --build is set (the default), the
     image is built and pushed to unregistry before the manifest is applied.
     Pass --no-build to skip the build step (e.g. when re-deploying an image
-    that is already in the registry).
+    that is already in the registry, or when target is a manifest path).
     """
-    manifest = settings.K8S_PATH / f"{name}.yaml"
-    if not manifest.exists():
-        _fail(
-            f"No manifest found at {manifest}. "
-            f"Available: {', '.join(p.stem for p in settings.K8S_PATH.glob('*.yaml'))}"
-        )
+    candidate = Path(target)
+    is_path = candidate.is_file()
+    manifest, label = _resolve_manifest_target(target)
 
-    dockerfile = settings.ROOT_PATH / "docker" / f"Dockerfile.{name}"
-    if build and dockerfile.exists():
-        _publish(name)
+    if build and not is_path:
+        dockerfile = settings.docker_path / f"Dockerfile.{target}"
+        if dockerfile.exists():
+            _publish(target)
 
-    kubectl.apply(manifest.read_text(), label=name)
-    typer.echo(f"\n[OK]  {name} deployed.")
+    kubectl.apply(manifest.read_text(), label=label)
+    typer.echo(f"\n[OK]  {label} deployed.")
 
 
 @app.command()
 def remove(
-    name: str = typer.Argument(
-        ..., help="Manifest name in k8s/ (without .yaml), e.g. 'postgres', 'valkey'."
+    target: str = typer.Argument(
+        ...,
+        help=("Manifest name in k8s/ (without .yaml) or a path to a manifest file."),
     ),
     namespace: str = typer.Option(
         _DEFAULT_NAMESPACE, "--namespace", "-n", help="Kubernetes namespace."
@@ -154,19 +177,21 @@ def remove(
 ) -> None:
     """Remove a deployment and all associated resources (volumes, secrets, configmaps, ingresses).
 
-    Deletes everything defined in k8s/<name>.yaml, then sweeps for any PVCs, Secrets,
-    and ConfigMaps labelled app=<name> in the target namespace.
+    Deletes everything defined in the resolved manifest, then sweeps for any PVCs,
+    Secrets, and ConfigMaps labelled app=<name> in the target namespace.
     """
-    manifest = settings.K8S_PATH / f"{name}.yaml"
-    if not manifest.exists():
-        _fail(
-            f"No manifest found at {manifest}. "
-            f"Available manifests: {', '.join(p.stem for p in settings.K8S_PATH.glob('*.yaml'))}"
-        )
-
+    manifest, name = _resolve_manifest_target(target)
     sweep_kinds = ["persistentvolumeclaims", "secrets", "configmaps", "ingresses"]
 
-    typer.echo(f"==> Resources to remove (from {manifest.relative_to(settings.ROOT_PATH)}):")
+    repo = workspace.find_repo()
+    if repo is not None:
+        try:
+            location = str(manifest.relative_to(repo))
+        except ValueError:
+            location = str(manifest)
+    else:
+        location = str(manifest)
+    typer.echo(f"==> Resources to remove (from {location}):")
     preview = subprocess.run(
         ["kubectl", "get", "-f", str(manifest), "-n", namespace, "--ignore-not-found"],
         text=True,
