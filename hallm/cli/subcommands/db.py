@@ -10,7 +10,7 @@ from hallm.core.settings import settings
 
 app = typer.Typer(help="Database operations.", no_args_is_help=True)
 
-_BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "bootstrap"
+_BOOTSTRAP_PATH = settings.CLI_PATH / "subcommands" / "_bootstrap"
 _JOB_MANIFEST = settings.K8S_PATH / "jobs" / "db-bootstrap.yaml"
 _CONFIGMAP_NAME = "hallm-bootstrap-sql"
 _JOB_NAME = "db-bootstrap"
