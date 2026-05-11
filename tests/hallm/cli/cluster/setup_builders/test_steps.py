@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from hallm.cli.subcommands.cluster.setup_builders.base import SetupStepError
 from hallm.cli.subcommands.cluster.setup_builders.bootstrap_namespaces import (
     BootstrapNamespacesStep,
 )
@@ -292,6 +293,28 @@ class TestSimpleServiceApps:
         assert isinstance(step.app, JupyterApp)
         assert step.app.wait_target == "deploy/jupyter"
         assert JupyterStep.needs_secrets is False
+
+    def test_jupyter_pre_builds_and_pushes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "docker_path", tmp_path / "docker")
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
+        (tmp_path / "docker").mkdir()
+        dockerfile = tmp_path / "docker" / "Dockerfile.jupyter"
+        dockerfile.write_text("FROM scratch\n")
+
+        with patch("hallm.cli.subcommands.cluster.setup_builders.jupyter.build_and_push") as mock:
+            JupyterStep().pre()
+        mock.assert_called_once_with(dockerfile, "jupyter", context=tmp_path)
+
+    def test_jupyter_pre_raises_when_dockerfile_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "docker_path", tmp_path / "docker")
+        monkeypatch.setattr(settings, "repo_root", tmp_path)
+
+        with pytest.raises(SetupStepError, match="Jupyter Dockerfile not found"):
+            JupyterStep().pre()
 
     def test_memory_mcp(self) -> None:
         step = MemoryMcpStep()
