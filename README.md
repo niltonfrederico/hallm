@@ -149,8 +149,7 @@ flowchart TD
     CA_NEW --> SYNC
     SYNC --> PG[Apply postgres manifest\nWait for Available · max 120 s]
     PG --> DBBOOT[db bootstrap\nCreate schemas · per-service DBs]
-    DBBOOT --> SIGNOZ[Install SigNoz via Helm]
-    SIGNOZ --> MANIFESTS[Apply remaining k8s/*.yaml manifests]
+    DBBOOT --> MANIFESTS[Apply remaining k8s/*.yaml manifests]
     MANIFESTS --> DONE([Cluster is ready])
     MANIFESTS -- failure --> NUKE[k3d cluster delete hallm]
     NUKE --> FAIL([Setup failed])
@@ -167,7 +166,7 @@ flowchart TD
 | TLS | cert-manager + **Cerberus** self-signed CA |
 | | `cerberus-ca` ClusterIssuer |
 | DNS | `*.hallm.local` → localhost via dnsmasq |
-| Namespaces | `signoz` |
+| Namespaces | `docs` (and `signoz` when `SIGNOZ_ENABLED=true`) |
 
 ### Using TLS
 

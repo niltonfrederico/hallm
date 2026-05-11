@@ -156,8 +156,8 @@ def init_observability() -> None:
         return
     _initialized = True
 
-    glitchtip_enabled = bool(settings.glitchtip_dsn)
-    otel_enabled = bool(settings.otel_endpoint)
+    glitchtip_enabled = settings.glitchtip_enabled and bool(settings.glitchtip_dsn)
+    otel_enabled = settings.signoz_enabled and bool(settings.otel_endpoint)
 
     if glitchtip_enabled:
         _init_sentry(otel_enabled=otel_enabled)

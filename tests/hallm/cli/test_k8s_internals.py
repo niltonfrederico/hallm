@@ -254,8 +254,6 @@ class TestApplyAllServiceManifests:
         for name in (
             "cerberus.yaml",
             "registries.yaml",
-            "signoz-ingress.yaml",
-            "signoz-extras.yaml",
             "traefik-config.yaml",
             "ollama.yaml",
         ):

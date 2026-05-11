@@ -65,7 +65,9 @@ def _patch_observability_surface() -> ExitStack:
 def test_init_observability_idempotent() -> None:
     with (
         patch("sentry_sdk.init") as sentry,
+        patch.object(settings, "glitchtip_enabled", True),
         patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+        patch.object(settings, "signoz_enabled", False),
         patch.object(settings, "otel_endpoint", ""),
     ):
         observability.init_observability()
@@ -76,7 +78,9 @@ def test_init_observability_idempotent() -> None:
 def test_otel_only_skips_sentry_processor_but_installs_w3c_propagator() -> None:
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
     ):
         observability.init_observability()
@@ -88,7 +92,9 @@ def test_otel_only_skips_sentry_processor_but_installs_w3c_propagator() -> None:
 def test_otel_only_instruments_every_library() -> None:
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
     ):
         observability.init_observability()
@@ -101,7 +107,9 @@ def test_logging_instrumentor_does_not_overwrite_format() -> None:
     only injects trace_id/span_id without rewriting log formatters."""
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
     ):
         observability.init_observability()
@@ -114,7 +122,9 @@ def test_glitchtip_plus_otel_fans_out_to_both_processors() -> None:
     with (
         _patch_observability_surface() as _,
         patch("sentry_sdk.init") as sentry,
+        patch.object(settings, "glitchtip_enabled", True),
         patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
         patch.object(settings, "sentry_traces_sample_rate", 0.5),
     ):
@@ -138,7 +148,9 @@ def test_glitchtip_only_init_uses_zero_traces_sample_rate() -> None:
     """Without OTEL the Sentry init must not enable performance tracing."""
     with (
         patch("sentry_sdk.init") as sentry,
+        patch.object(settings, "glitchtip_enabled", True),
         patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+        patch.object(settings, "signoz_enabled", False),
         patch.object(settings, "otel_endpoint", ""),
     ):
         observability.init_observability()
@@ -151,7 +163,9 @@ def test_glitchtip_only_init_uses_zero_traces_sample_rate() -> None:
 def test_sentry_init_includes_logging_integration() -> None:
     with (
         patch("sentry_sdk.init") as sentry,
+        patch.object(settings, "glitchtip_enabled", True),
         patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+        patch.object(settings, "signoz_enabled", False),
         patch.object(settings, "otel_endpoint", ""),
     ):
         observability.init_observability()
@@ -168,7 +182,9 @@ def test_https_endpoint_with_cert(tmp_path: Path) -> None:
     ca_cert.write_text("CERT")
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "https://otel.hallm.local"),
         patch.object(settings, "SECRETS_PATH", tmp_path),
     ):
@@ -186,7 +202,9 @@ def test_https_endpoint_with_cert(tmp_path: Path) -> None:
 def test_https_endpoint_without_cert(tmp_path: Path) -> None:
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "https://otel.hallm.local"),
         patch.object(settings, "SECRETS_PATH", tmp_path),
     ):
@@ -202,7 +220,9 @@ def test_https_endpoint_without_cert(tmp_path: Path) -> None:
 def test_otel_log_provider_wired_with_batch_processor() -> None:
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
     ):
         observability.init_observability()
@@ -215,8 +235,23 @@ def test_otel_log_provider_wired_with_batch_processor() -> None:
 def test_no_dsn_no_endpoint_does_nothing() -> None:
     with (
         patch("sentry_sdk.init") as sentry,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", False),
         patch.object(settings, "otel_endpoint", ""),
+    ):
+        observability.init_observability()
+        sentry.assert_not_called()
+
+
+def test_flags_off_disable_pipelines_even_with_dsn_and_endpoint_set() -> None:
+    """Both backends configured but flags False → nothing is wired."""
+    with (
+        patch("sentry_sdk.init") as sentry,
+        patch.object(settings, "glitchtip_enabled", False),
+        patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+        patch.object(settings, "signoz_enabled", False),
+        patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
     ):
         observability.init_observability()
         sentry.assert_not_called()
@@ -225,7 +260,9 @@ def test_no_dsn_no_endpoint_does_nothing() -> None:
 def test_resource_includes_deployment_environment_and_cli_command() -> None:
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
         patch.object(settings, "environment", "cluster"),
         patch.object(sys, "argv", ["hallm", "mcp", "serve"]),
@@ -279,7 +316,9 @@ def test_otel_only_processor_count_is_two() -> None:
     """Without Glitchtip: CorrelationId + Batch (no Sentry)."""
     with (
         _patch_observability_surface() as _,
+        patch.object(settings, "glitchtip_enabled", False),
         patch.object(settings, "glitchtip_dsn", ""),
+        patch.object(settings, "signoz_enabled", True),
         patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
     ):
         observability.init_observability()

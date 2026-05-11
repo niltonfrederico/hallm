@@ -10,21 +10,36 @@ from hallm.core.settings import settings
 
 
 class TestOtel:
-    def test_aborts_when_neither_backend_configured(self, runner: CliRunner) -> None:
+    def test_aborts_when_neither_backend_enabled(self, runner: CliRunner) -> None:
         with (
+            patch.object(settings, "glitchtip_enabled", False),
             patch.object(settings, "glitchtip_dsn", ""),
+            patch.object(settings, "signoz_enabled", False),
             patch.object(settings, "otel_endpoint", ""),
         ):
             result = runner.invoke(app, ["otel"])
         assert result.exit_code == 1
-        assert "nothing to send" in result.output
+        assert "Neither GLITCHTIP nor SIGNOZ" in result.output
+
+    def test_aborts_when_flags_off_even_if_dsn_and_endpoint_set(self, runner: CliRunner) -> None:
+        with (
+            patch.object(settings, "glitchtip_enabled", False),
+            patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+            patch.object(settings, "signoz_enabled", False),
+            patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
+        ):
+            result = runner.invoke(app, ["otel"])
+        assert result.exit_code == 1
+        assert "Neither GLITCHTIP nor SIGNOZ" in result.output
 
     def test_emits_span_log_and_glitchtip_event(self, runner: CliRunner) -> None:
         tracer = MagicMock()
         provider = MagicMock(spec=["force_flush"])
         log_provider = MagicMock(spec=["force_flush"])
         with (
+            patch.object(settings, "glitchtip_enabled", True),
             patch.object(settings, "glitchtip_dsn", "https://dsn.test"),
+            patch.object(settings, "signoz_enabled", True),
             patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
             patch("hallm.cli.subcommands.seed.init_observability") as init_obs,
             patch("hallm.cli.subcommands.seed.trace.get_tracer", return_value=tracer),
@@ -47,10 +62,12 @@ class TestOtel:
         flush.assert_called_once_with(timeout=5.0)
         assert settings.otel_service_name == "x"
 
-    def test_skips_glitchtip_when_dsn_blank(self, runner: CliRunner) -> None:
+    def test_skips_glitchtip_when_flag_off(self, runner: CliRunner) -> None:
         tracer = MagicMock()
         with (
+            patch.object(settings, "glitchtip_enabled", False),
             patch.object(settings, "glitchtip_dsn", ""),
+            patch.object(settings, "signoz_enabled", True),
             patch.object(settings, "otel_endpoint", "http://otel.test:4317"),
             patch("hallm.cli.subcommands.seed.init_observability"),
             patch("hallm.cli.subcommands.seed.trace.get_tracer", return_value=tracer),

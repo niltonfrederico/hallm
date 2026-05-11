@@ -48,9 +48,9 @@ hallm/
 │       └── container.py         # publish
 ├── core/
 │   ├── settings.py              # Class-level env reads + cached_property DB
-│   ├── observability.py         # Glitchtip + SigNoz/OTEL bootstrap
-│   ├── _http.py                 # BaseAsyncHTTPClient (gotify/paperless share it)
-│   ├── gotify.py / paperless.py
+│   ├── observability.py         # Glitchtip + SigNoz/OTEL bootstrap (flag-gated)
+│   ├── _http.py                 # BaseAsyncHTTPClient (paperless + archived gotify)
+│   ├── gotify.py / paperless.py # gotify gated by GOTIFY_ENABLED
 │   ├── cache.py                 # Async Valkey/Redis wrapper
 │   ├── storage.py               # Async S3 (RustFS) helpers
 │   └── enums.py
@@ -72,8 +72,12 @@ tests/                           # Mirror of hallm/ layout
 `hallm/core/settings.py` exposes a single `Settings` class:
 
 - **Class-level** attributes are evaluated at module import. All env-driven
-  values with sensible defaults live here (RustFS, Valkey, Gotify, Paperless,
-  Glitchtip, OTEL, Spotify, `DOCKER_CONTEXT`, `environment`, `debug`).
+  values with sensible defaults live here (RustFS, Valkey, Paperless,
+  OTEL, Spotify, `DOCKER_CONTEXT`, `environment`, `debug`).
+- **Feature flags** (`signoz_enabled`, `glitchtip_enabled`, `gotify_enabled`)
+  default to `False`. Their manifests live under `k8s/archived/`; set the
+  matching env var (`SIGNOZ_ENABLED`, `GLITCHTIP_ENABLED`, `GOTIFY_ENABLED`)
+  to `true` and restore the manifest to re-enable the integration.
 - **`@cached_property`** is used for `database`, `database_url`, and
   `tortoise_database_url`. These have no defaults, so each `Settings()`
   instance reads them on first access — letting tests monkeypatch
@@ -169,7 +173,7 @@ lifecycle (preflight/setup/healthcheck/nuke/get-cert) and cluster operations
 | Ingress | Traefik on ports 80 / 443, exposed via k3d loadbalancer |
 | TLS | cert-manager + Cerberus self-signed CA (`cerberus-ca` ClusterIssuer) |
 | DNS | `*.hallm.local` resolves to localhost via dnsmasq |
-| Namespaces | `signoz` |
+| Namespaces | `docs` (and `signoz` when `SIGNOZ_ENABLED=true`) |
 
 ### Rootless Docker prerequisites
 
@@ -209,12 +213,16 @@ uv run hallm k8s remove <name>   # delete a manifest + sweep app-labelled resour
 k8s/
 ├── cerberus.yaml         # Cerberus PKI: bootstrap ClusterIssuer, root CA, CA ClusterIssuer
 ├── <service>.yaml        # One file per deployable service (postgres, valkey, ...)
-├── helm/
-│   └── signoz-values.yaml
+├── archived/             # Disabled integrations (glitchtip, gotify, ots, signoz-*, wakapi)
+│   └── helm/             # Archived helm values (signoz-values.yaml, k8s-infra-values.yaml)
 └── test/
     ├── gpu-smoke.yaml    # one-shot Pod requesting amd.com/gpu — used by healthcheck
     └── dns-smoke.yaml    # nginx Deployment + Service + Ingress for test.hallm.local
 ```
+
+Manifests under `k8s/archived/` are preserved for future revival but not
+applied by `hallm k8s setup`. Move a manifest back to `k8s/` and flip the
+matching feature flag to re-enable a service.
 
 ### GPU workloads
 

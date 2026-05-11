@@ -181,26 +181,11 @@ class TestApplyExtras:
 # ---------------------------------------------------------------------------
 
 
-def test_signoz_skipped_from_generic_apply_loop() -> None:
-    """signoz-{extras,ingress}.yaml must NOT be applied by the generic apply loop."""
-    from hallm.cli.subcommands.cluster import _SETUP_SKIP_MANIFESTS
-
-    assert "signoz-extras.yaml" in _SETUP_SKIP_MANIFESTS
-    assert "signoz-ingress.yaml" in _SETUP_SKIP_MANIFESTS
-
-
-def test_otel_endpoint_points_at_signoz_collector() -> None:
-    """The hallm app must already point its OTLP exporter at the in-cluster collector."""
-    assert "signoz-otel-collector.signoz" in settings.otel_endpoint
-
-
-def test_signoz_init_sql_present_in_bootstrap_dir() -> None:
-    """signoz_monitor role creation must run as part of `hallm db bootstrap`."""
-    init_sql = settings.CLI_PATH / "subcommands" / "bootstrap" / "init.signoz.sql"
-    assert init_sql.exists()
-    body = init_sql.read_text()
-    # The literal role name is injected via envsubst from the Job env (set in
-    # k8s/jobs/db-bootstrap.yaml) — the SQL template references it by var name.
+def test_signoz_init_sql_archived() -> None:
+    """SigNoz role creation SQL was archived alongside the manifests."""
+    archived_sql = settings.CLI_PATH / "subcommands" / "bootstrap" / "archived" / "init.signoz.sql"
+    assert archived_sql.exists()
+    body = archived_sql.read_text()
     assert "${SIGNOZ_MONITOR_USER}" in body
     assert "pg_monitor" in body
 
@@ -223,14 +208,8 @@ _EXPECTED_SIGNOZ_SERVICES: tuple[str, ...] = (
 
 
 def test_signoz_extras_manifest_assigns_service_name_per_deployment() -> None:
-    """Each scrape target must surface in SigNoz under its own service.name.
-
-    The collector ConfigMap drives this: one resource processor per service
-    (`resource/<name>`) sets `service.name=<name>` and feeds a dedicated
-    pipeline (`metrics/<name>`).  Without this, every metric would land under
-    a single generic service in the SigNoz UI.
-    """
-    manifest = (settings.K8S_PATH / "signoz-extras.yaml").read_text()
+    """Archived signoz-extras still maps each scrape target to its own service.name."""
+    manifest = (settings.K8S_PATH / "archived" / "signoz-extras.yaml").read_text()
     for name in _EXPECTED_SIGNOZ_SERVICES:
         assert f"resource/{name}:" in manifest
         assert f"metrics/{name}:" in manifest
@@ -238,15 +217,8 @@ def test_signoz_extras_manifest_assigns_service_name_per_deployment() -> None:
 
 
 def test_signoz_values_enables_logs_and_label_based_service_name() -> None:
-    """k8s-infra must collect pod logs and promote the `app` label to service.name.
-
-    Together these make every Deployment appear as its own service in the
-    SigNoz UI (logs tab + services tab) without per-pod instrumentation.
-
-    The agent config lives in the standalone k8s-infra-values.yaml since
-    signoz/signoz >= 0.55 dropped the k8s-infra subchart.
-    """
-    values = (settings.K8S_PATH / "helm" / "k8s-infra-values.yaml").read_text()
+    """Archived k8s-infra values still collect pod logs and promote the `app` label."""
+    values = (settings.K8S_PATH / "archived" / "helm" / "k8s-infra-values.yaml").read_text()
     assert "logsCollection:" in values
     assert "extractLabels:" in values
     assert "tag_name: service.name" in values

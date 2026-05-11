@@ -22,8 +22,9 @@ app.add_typer(cluster.app, name="cluster")
 app.add_typer(secrets.app, name="secrets")
 app.add_typer(container.app, name="container")
 app.add_typer(seed.app, name="seed")
-app.add_typer(signoz.app, name="signoz")
 app.add_typer(network.app, name="network")
+if settings.signoz_enabled:
+    app.add_typer(signoz.app, name="signoz")
 
 
 @app.callback()

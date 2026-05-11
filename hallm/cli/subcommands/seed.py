@@ -38,8 +38,13 @@ def otel(
     (SigNoz). The log goes through the OTLP log pipeline (SigNoz). The Sentry
     capture_message lands in Glitchtip directly.
     """
-    if not settings.glitchtip_dsn and not settings.otel_endpoint:
-        _fail("Neither GLITCHTIP_DSN nor OTEL_ENDPOINT is set — nothing to send.")
+    glitchtip_active = settings.glitchtip_enabled and bool(settings.glitchtip_dsn)
+    signoz_active = settings.signoz_enabled and bool(settings.otel_endpoint)
+    if not glitchtip_active and not signoz_active:
+        _fail(
+            "Neither GLITCHTIP nor SIGNOZ is enabled — set GLITCHTIP_ENABLED=true "
+            "(plus GLITCHTIP_DSN) or SIGNOZ_ENABLED=true (plus OTEL_ENDPOINT) to send."
+        )
 
     settings.otel_service_name = service_name
     init_observability()
@@ -52,7 +57,7 @@ def otel(
         span.set_attribute("seed.message", message)
         span.set_attribute("seed.service_name", service_name)
         logger.info(message, extra={"seed.message": message})
-        if settings.glitchtip_dsn:
+        if glitchtip_active:
             sentry_sdk.capture_message(message, level="info")
     logger.info("smoke test complete — check SigNoz and Glitchtip for the new event")
 
@@ -60,5 +65,5 @@ def otel(
         if hasattr(provider, "force_flush"):
             provider.force_flush()
 
-    if settings.glitchtip_dsn:
+    if glitchtip_active:
         sentry_sdk.flush(timeout=5.0)

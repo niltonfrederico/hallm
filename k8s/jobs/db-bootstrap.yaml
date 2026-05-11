@@ -32,14 +32,10 @@ spec:
 
               # 2. Alias shared passwords (since they reuse POSTGRES_PASSWORD)
               export HALLM_DB_PASSWORD="$POSTGRES_PASSWORD"
-              export SIGNOZ_MONITOR_PASSWORD="$POSTGRES_PASSWORD"
 
               # 3. Dynamically build the VARS list for envsubst
               # Grabs any env var where the key contains "_DB_" and formats it as $VAR_NAME
-              DB_VARS=$(env | awk -F= '$1 ~ /_DB_/ {printf "$%s ", $1}')
-
-              # Combine the dynamic DB vars with the explicit Signoz vars
-              VARS="${DB_VARS}\$SIGNOZ_MONITOR_USER \$SIGNOZ_MONITOR_PASSWORD"
+              VARS=$(env | awk -F= '$1 ~ /_DB_/ {printf "$%s ", $1}')
 
               for f in /bootstrap/*.sql; do
                 echo "==> Running $f"

@@ -25,7 +25,7 @@ If `$ARGUMENTS` is empty, ask the user what recipe they want before doing anythi
 
 Always read at least:
 
-- `k8s/wakapi.yaml` — canonical Deployment + Service + Ingress (TLS via Cerberus)
+- `k8s/paperless.yaml` — canonical Deployment + Service + Ingress (TLS via Cerberus)
 - `k8s/postgres.yaml` — Deployment + PVC + Service + IngressRouteTCP
 - `k8s/paperless.yaml` — multi-component app (web + sidecars) sharing labels
 - `k8s/jobs/db-bootstrap.yaml` — Job pattern (backoffLimit, ttlSecondsAfterFinished, restartPolicy: Never)

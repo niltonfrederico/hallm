@@ -73,7 +73,6 @@ class TestSetup:
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp(stdout=cert_b64)) as mock,
             patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
-            patch("hallm.cli.subcommands.cluster._signoz._run_bootstrap"),
             patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
@@ -84,7 +83,8 @@ class TestSetup:
         assert result.exit_code == 0
         assert "Done" in result.output
         assert "Syncing secrets" in result.output
-        assert mock.call_count == 10
+        assert "SigNoz disabled" in result.output
+        assert mock.call_count == 11
         mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
     def test_k3d_create_fails(self, tmp_path: Path, runner: CliRunner) -> None:
@@ -127,6 +127,7 @@ class TestSetup:
                 side_effect=[
                     _cp(),  # k3d cluster create
                     _cp(),  # poll: kubectl get nodes
+                    _cp(),  # ensure namespace docs
                     _cp(),  # apply traefik-config.yaml
                     _cp(returncode=1, stderr="dp fail"),  # apply ROCm device plugin
                     _cp(),  # k3d cluster delete cleanup
@@ -150,6 +151,7 @@ class TestSetup:
                 side_effect=[
                     _cp(),  # k3d cluster create
                     _cp(),  # poll: kubectl get nodes
+                    _cp(),  # ensure namespace docs
                     _cp(),  # apply traefik-config.yaml
                     _cp(),  # apply ROCm device plugin
                     _cp(returncode=1),  # apply cert-manager
@@ -174,6 +176,7 @@ class TestSetup:
                 side_effect=[
                     _cp(),  # k3d cluster create
                     _cp(),  # poll: kubectl get nodes
+                    _cp(),  # ensure namespace docs
                     _cp(),  # apply traefik-config.yaml
                     _cp(),  # apply ROCm device plugin
                     _cp(),  # apply cert-manager
@@ -213,7 +216,7 @@ class TestSetup:
             _PATCH_MOUNT,
             patch(
                 "subprocess.run",
-                side_effect=[_cp()] * 6 + [_cp(returncode=1, stderr="cerb"), _cp()],
+                side_effect=[_cp()] * 7 + [_cp(returncode=1, stderr="cerb"), _cp()],
             ),
             patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
             patch.object(settings, "SECRETS_PATH", secrets),
@@ -238,7 +241,6 @@ class TestSetup:
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp(stdout=cert_b64)),
             patch("hallm.cli.subcommands.cluster._manifest", return_value="cerberus: yaml"),
-            patch("hallm.cli.subcommands.cluster._signoz._run_bootstrap"),
             patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
@@ -259,7 +261,6 @@ class TestSetup:
             _PATCH_PREFLIGHT,
             _PATCH_MOUNT,
             patch("subprocess.run", return_value=_cp()) as mock,
-            patch("hallm.cli.subcommands.cluster._signoz._run_bootstrap"),
             patch("hallm.cli.subcommands.cluster._apply_all_service_manifests"),
             _PATCH_SETUP_POSTGRES,
             patch.object(settings, "SECRETS_PATH", secrets),
@@ -269,9 +270,10 @@ class TestSetup:
 
         assert result.exit_code == 0
         assert "Restoring" in result.output
-        # k3d create + api-ready poll + apply traefik-config + apply ROCm + apply cert-manager
-        # + webhook wait + create-secret dry-run + apply secret + apply issuer
-        assert mock.call_count == 9
+        # k3d create + api-ready poll + ensure docs namespace + apply traefik-config
+        # + apply ROCm + apply cert-manager + webhook wait + create-secret dry-run
+        # + apply secret + apply issuer
+        assert mock.call_count == 10
         mock_cert.assert_called_once_with(secrets / "cerberus-ca.pem")
 
 

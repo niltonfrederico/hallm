@@ -45,6 +45,15 @@ class Settings:
     environment: str = env.str("ENVIRONMENT", "localhost")
     debug: bool = env.bool("DEBUG", False)
 
+    # Feature flags for archived integrations.  Manifests for these services
+    # live under k8s/archived/; flipping a flag back to True re-enables the
+    # related Python wiring (CLI command registration, observability exporter,
+    # HTTP client construction).  Move the manifest back to k8s/ to actually
+    # deploy the service when re-enabling.
+    signoz_enabled: bool = env.bool("SIGNOZ_ENABLED", False)
+    glitchtip_enabled: bool = env.bool("GLITCHTIP_ENABLED", False)
+    gotify_enabled: bool = env.bool("GOTIFY_ENABLED", False)
+
     # RustFS (S3-compatible object storage)
     rustfs_endpoint: str = env.str(
         "RUSTFS_ENDPOINT", "http://rustfs.default.svc.cluster.local:9000"

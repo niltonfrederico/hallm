@@ -46,19 +46,18 @@ _CERT_MANAGER_URL = (
 # registries.yaml is a k3s registry config file, not a Kubernetes manifest.
 # traefik-config.yaml must be applied before postgres so the bootstrap can
 # reach postgres through the Traefik TCP entrypoint.
-# signoz-{ingress,extras}.yaml are owned by `hallm signoz bootstrap`.
 _SETUP_SKIP_MANIFESTS: frozenset[str] = frozenset(
     {
         "cerberus.yaml",
         "postgres.yaml",
         "registries.yaml",
-        "signoz-ingress.yaml",
-        "signoz-extras.yaml",
         "traefik-config.yaml",
     }
 )
 
-_REQUIRED_NAMESPACES: tuple[str, ...] = ("signoz", "docs")
+_REQUIRED_NAMESPACES: tuple[str, ...] = ("docs",)
+# Namespaces gated by feature flags — added to _REQUIRED_NAMESPACES at runtime.
+_OPTIONAL_NAMESPACES: tuple[tuple[str, str], ...] = (("signoz_enabled", "signoz"),)
 
 _GPU_DEVICES: tuple[Path, ...] = (Path("/dev/kfd"), Path("/dev/dri/renderD128"))
 _CGROUP_DELEGATE_FILE = Path("/etc/systemd/system/user@.service.d/delegate.conf")
@@ -344,7 +343,11 @@ def mount() -> None:
 
 def _ensure_namespaces() -> None:
     """Create any required namespace that doesn't already exist (idempotent)."""
-    for ns in _REQUIRED_NAMESPACES:
+    namespaces: list[str] = list(_REQUIRED_NAMESPACES)
+    for flag, ns in _OPTIONAL_NAMESPACES:
+        if getattr(settings, flag, False):
+            namespaces.append(ns)
+    for ns in namespaces:
         manifest = f"apiVersion: v1\nkind: Namespace\nmetadata:\n  name: {ns}\n"
         kubectl.apply(manifest, label=f"namespace/{ns}")
 
@@ -479,8 +482,11 @@ def setup(
         typer.echo("\n==> Applying service manifests from k8s/...")
         _apply_all_service_manifests()
 
-        typer.echo("\n==> Bootstrapping SigNoz...")
-        _signoz._run_bootstrap()
+        if settings.signoz_enabled:
+            typer.echo("\n==> Bootstrapping SigNoz...")
+            _signoz._run_bootstrap()
+        else:
+            typer.echo("\n==> SigNoz disabled (set SIGNOZ_ENABLED=true to enable).")
 
         typer.echo("\n==> Done. Cluster is ready.")
     except Exception:
