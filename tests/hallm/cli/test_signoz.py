@@ -183,7 +183,7 @@ class TestApplyExtras:
 
 def test_signoz_init_sql_archived() -> None:
     """SigNoz role creation SQL was archived alongside the manifests."""
-    archived_sql = settings.CLI_PATH / "subcommands" / "bootstrap" / "archived" / "init.signoz.sql"
+    archived_sql = settings.CLI_PATH / "subcommands" / "_bootstrap" / "archived" / "init.signoz.sql"
     assert archived_sql.exists()
     body = archived_sql.read_text()
     assert "${SIGNOZ_MONITOR_USER}" in body
