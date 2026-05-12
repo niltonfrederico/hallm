@@ -79,7 +79,7 @@ spec:
               exec supergateway "$@"
             - "--"
             - "--stdio"
-            - "npx -y @modelcontextprotocol/server-memory@2026.1.26"
+            - "npx -y -p @modelcontextprotocol/server-memory@2026.1.26 -p zod mcp-server-memory"
             - "--outputTransport"
             - "streamableHttp"
             - "--port"
