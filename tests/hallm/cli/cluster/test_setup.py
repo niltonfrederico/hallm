@@ -63,6 +63,18 @@ class TestSetupCommand:
                 return_value=True,
             )
         )
+        stack.enter_context(
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.poll_until",
+                return_value=True,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.run",
+                return_value=_cp(stdout="Bound"),
+            )
+        )
         return stack
 
     def test_happy_path_signoz_disabled(self, runner, _setup_env, monkeypatch) -> None:

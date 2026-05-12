@@ -61,6 +61,11 @@ class Settings:
     STORAGE_DEVICE: Path = Path("/dev/sda1")
     STORAGE_MOUNT_PATH: Path = Path("/mnt/hallm")
 
+    # Host directory exposed inside the cluster as a shared ReadWriteMany volume.
+    # Pods bind subpaths of SHARED_VOLUMES_NODE_PATH via the `shared-volumes` PVC.
+    SHARED_VOLUMES_PATH: Path = Path.home() / ".hallm" / "shared-volumes"
+    SHARED_VOLUMES_NODE_PATH: Path = Path("/var/lib/hallm/shared")
+
     # ------------------------------------------------------------------
     # Environment-driven (all have defaults so module import never fails)
     # ------------------------------------------------------------------

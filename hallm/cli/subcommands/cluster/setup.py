@@ -15,6 +15,7 @@ from hallm.cli.subcommands.cluster.setup_builders.postgres import PostgresStep
 from hallm.cli.subcommands.cluster.setup_builders.preflight import PreflightStep
 from hallm.cli.subcommands.cluster.setup_builders.rocm_plugin import ROCmPluginStep
 from hallm.cli.subcommands.cluster.setup_builders.rustfs import RustfsStep
+from hallm.cli.subcommands.cluster.setup_builders.shared_volumes import SharedVolumesStep
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozStep
 from hallm.cli.subcommands.cluster.setup_builders.traefik_config import TraefikConfigStep
 from hallm.cli.subcommands.cluster.setup_builders.trust_docker_ca import TrustDockerCaStep
@@ -45,6 +46,7 @@ def setup(
         MountStorageStep(),
         CreateClusterStep(),
         WaitApiStep(),
+        SharedVolumesStep(),
         TraefikConfigStep(),
         ROCmPluginStep(),
         CertManagerStep(),

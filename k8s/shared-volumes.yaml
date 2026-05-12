@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: shared-volumes
+  labels:
+    app: shared-volumes
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hallm-shared
+  hostPath:
+    path: /var/lib/hallm/shared
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: default
+    name: shared-volumes
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-volumes
+  namespace: default
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: hallm-shared
+  resources:
+    requests:
+      storage: 100Gi
+  volumeName: shared-volumes

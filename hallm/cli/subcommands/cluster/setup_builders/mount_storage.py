@@ -15,6 +15,9 @@ class MountStorageStep(Step):
     def pre(self) -> None:
         settings.SECRETS_PATH.mkdir(parents=True, exist_ok=True)
         typer.echo(f"  Secrets directory: {settings.SECRETS_PATH}")
+        # k3d --volume fails if the host path doesn't exist when the cluster starts.
+        settings.SHARED_VOLUMES_PATH.mkdir(parents=True, exist_ok=True)
+        typer.echo(f"  Shared volumes directory: {settings.SHARED_VOLUMES_PATH}")
 
     def run(self) -> None:
         _mount_storage()

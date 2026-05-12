@@ -28,6 +28,8 @@ from hallm.cli.subcommands.cluster.setup_builders.rocm_plugin import ROCmPluginA
 from hallm.cli.subcommands.cluster.setup_builders.rocm_plugin import ROCmPluginStep
 from hallm.cli.subcommands.cluster.setup_builders.rustfs import RustfsApp
 from hallm.cli.subcommands.cluster.setup_builders.rustfs import RustfsStep
+from hallm.cli.subcommands.cluster.setup_builders.shared_volumes import SharedVolumesApp
+from hallm.cli.subcommands.cluster.setup_builders.shared_volumes import SharedVolumesStep
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozApp
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozStep
 from hallm.cli.subcommands.cluster.setup_builders.sync_secrets import SyncSecretsStep
@@ -113,9 +115,11 @@ class TestMountStorageStep:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path / "secrets")
+        monkeypatch.setattr(settings, "SHARED_VOLUMES_PATH", tmp_path / "shared-volumes")
         step = MountStorageStep()
         step.pre()
         assert (tmp_path / "secrets").is_dir()
+        assert (tmp_path / "shared-volumes").is_dir()
 
         with patch(
             "hallm.cli.subcommands.cluster.setup_builders.mount_storage._mount_storage"
@@ -134,6 +138,11 @@ class TestCreateClusterStep:
         mock.assert_called_once()
         cmd = mock.call_args.args[0]
         assert cmd[:3] == ["k3d", "cluster", "create"]
+        assert any(
+            arg.endswith(f":{settings.SHARED_VOLUMES_NODE_PATH}@all")
+            and str(settings.SHARED_VOLUMES_PATH) in arg
+            for arg in cmd
+        )
 
     def test_is_satisfied_true_when_cluster_listed(self) -> None:
         with patch(
@@ -357,6 +366,57 @@ class TestSimpleServiceApps:
         step = MemoryMcpStep()
         assert isinstance(step.app, MemoryMcpApp)
         assert step.app.wait_target == "deploy/memory-mcp"
+
+
+class TestSharedVolumesStep:
+    def test_app_uses_manifest(self) -> None:
+        step = SharedVolumesStep()
+        assert isinstance(step.app, SharedVolumesApp)
+        assert step.app.manifest_path == Path("shared-volumes.yaml")
+
+    def test_is_satisfied_true_when_phase_is_bound(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.run",
+            return_value=_cp(stdout="Bound"),
+        ) as mock:
+            assert SharedVolumesStep().is_satisfied() is True
+        cmd = mock.call_args.args[0]
+        assert cmd[:4] == ["kubectl", "get", "pvc", "shared-volumes"]
+        assert "jsonpath={.status.phase}" in cmd
+
+    def test_is_satisfied_false_when_phase_pending(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.run",
+            return_value=_cp(stdout="Pending"),
+        ):
+            assert SharedVolumesStep().is_satisfied() is False
+
+    def test_is_satisfied_false_when_kubectl_fails(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.run",
+            return_value=_cp(returncode=1, stdout=""),
+        ):
+            assert SharedVolumesStep().is_satisfied() is False
+
+    def test_post_validate_succeeds_when_pvc_binds(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.poll_until",
+            return_value=True,
+        ) as mock:
+            SharedVolumesStep().post_validate()
+        mock.assert_called_once()
+
+    def test_post_validate_fails_when_pvc_never_binds(self) -> None:
+        import typer
+
+        with (
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.shared_volumes.poll_until",
+                return_value=False,
+            ),
+            pytest.raises(typer.Exit),
+        ):
+            SharedVolumesStep().post_validate()
 
 
 class TestSignozStep:
