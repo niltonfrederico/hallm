@@ -14,6 +14,8 @@ from hallm.cli.subcommands.cluster.setup_builders.cerberus_pki import CerberusPk
 from hallm.cli.subcommands.cluster.setup_builders.cert_manager import CertManagerApp
 from hallm.cli.subcommands.cluster.setup_builders.cert_manager import CertManagerStep
 from hallm.cli.subcommands.cluster.setup_builders.create_cluster import CreateClusterStep
+from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyApp
+from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyStep
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterApp
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterStep
 from hallm.cli.subcommands.cluster.setup_builders.memory_mcp import MemoryMcpApp
@@ -366,6 +368,12 @@ class TestSimpleServiceApps:
         step = MemoryMcpStep()
         assert isinstance(step.app, MemoryMcpApp)
         assert step.app.wait_target == "deploy/memory-mcp"
+
+    def test_gotify(self) -> None:
+        step = GotifyStep()
+        assert isinstance(step.app, GotifyApp)
+        assert step.app.wait_target == "deploy/gotify"
+        assert GotifyStep.needs_secrets is False
 
 
 class TestSharedVolumesStep:

@@ -49,8 +49,8 @@ hallm/
 ├── core/
 │   ├── settings.py              # Class-level env reads + cached_property DB
 │   ├── observability.py         # Glitchtip + SigNoz/OTEL bootstrap (flag-gated)
-│   ├── _http.py                 # BaseAsyncHTTPClient (paperless + archived gotify)
-│   ├── gotify.py / paperless.py # gotify gated by GOTIFY_ENABLED
+│   ├── _http.py                 # BaseAsyncHTTPClient (paperless + gotify)
+│   ├── gotify.py / paperless.py # gotify gated by GOTIFY_ENABLED (default True)
 │   ├── cache.py                 # Async Valkey/Redis wrapper
 │   ├── storage.py               # Async S3 (RustFS) helpers
 │   └── enums.py
@@ -74,10 +74,11 @@ tests/                           # Mirror of hallm/ layout
 - **Class-level** attributes are evaluated at module import. All env-driven
   values with sensible defaults live here (RustFS, Valkey, Paperless,
   OTEL, Spotify, `DOCKER_CONTEXT`, `environment`, `debug`).
-- **Feature flags** (`signoz_enabled`, `glitchtip_enabled`, `gotify_enabled`)
-  default to `False`. Their manifests live under `k8s/archived/`; set the
-  matching env var (`SIGNOZ_ENABLED`, `GLITCHTIP_ENABLED`, `GOTIFY_ENABLED`)
-  to `true` and restore the manifest to re-enable the integration.
+- **Feature flags** (`signoz_enabled`, `glitchtip_enabled`) default to `False`;
+  `gotify_enabled` defaults to `True`. Archived manifests live under
+  `k8s/archived/`; set the matching env var and restore the manifest to
+  re-enable an integration (or flip the flag off without removing the
+  manifest to keep the service deployed but the client wiring dormant).
 - **`@cached_property`** is used for `database`, `database_url`, and
   `tortoise_database_url`. These have no defaults, so each `Settings()`
   instance reads them on first access — letting tests monkeypatch
@@ -237,7 +238,7 @@ uv run hallm k8s remove <name>   # delete a manifest + sweep app-labelled resour
 k8s/
 ├── cerberus.yaml         # Cerberus PKI: bootstrap ClusterIssuer, root CA, CA ClusterIssuer
 ├── <service>.yaml        # One file per deployable service (postgres, valkey, ...)
-├── archived/             # Disabled integrations (glitchtip, gotify, ots, signoz-*, wakapi)
+├── archived/             # Disabled integrations (glitchtip, ots, signoz-*, wakapi)
 │   └── helm/             # Archived helm values (signoz-values.yaml, k8s-infra-values.yaml)
 └── test/
     ├── gpu-smoke.yaml    # one-shot Pod requesting amd.com/gpu — used by healthcheck

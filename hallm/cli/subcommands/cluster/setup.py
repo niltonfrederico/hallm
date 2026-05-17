@@ -7,6 +7,7 @@ from hallm.cli.subcommands.cluster.setup_builders import build_setup_pipeline
 from hallm.cli.subcommands.cluster.setup_builders.cerberus_pki import CerberusPkiStep
 from hallm.cli.subcommands.cluster.setup_builders.cert_manager import CertManagerStep
 from hallm.cli.subcommands.cluster.setup_builders.create_cluster import CreateClusterStep
+from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyStep
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterStep
 from hallm.cli.subcommands.cluster.setup_builders.memory_mcp import MemoryMcpStep
 from hallm.cli.subcommands.cluster.setup_builders.mount_storage import MountStorageStep
@@ -59,6 +60,7 @@ def setup(
         PaperlessStep(),
         JupyterStep(),
         MemoryMcpStep(),
+        GotifyStep(),
     ]
     if settings.signoz_enabled:
         steps.append(SignozStep())

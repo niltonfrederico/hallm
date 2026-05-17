@@ -83,7 +83,7 @@ class Settings:
     # deploy the service when re-enabling.
     signoz_enabled: bool = env.bool("SIGNOZ_ENABLED", False)
     glitchtip_enabled: bool = env.bool("GLITCHTIP_ENABLED", False)
-    gotify_enabled: bool = env.bool("GOTIFY_ENABLED", False)
+    gotify_enabled: bool = env.bool("GOTIFY_ENABLED", True)
 
     # RustFS (S3-compatible object storage)
     rustfs_endpoint: str = env.str(
