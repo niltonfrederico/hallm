@@ -14,35 +14,16 @@ project's `docs/` (or `.claude/`) so the assistant has the contract.
 | TLS | Self-signed by the **Cerberus CA** (cluster-issuer `cerberus-ca`) |
 | Reachable from | Same host always; other devices via Tailscale Split DNS for `hallm.local` → tailnet IP of the host running dnsmasq |
 
-## Authentication model
+## Authentication
 
-Two kinds of credentials, **don't mix them**:
+Push uses a per-Application token. Send it as the `?token=<token>` query
+param or the `X-Gotify-Key: <token>` header — either works, the header
+is preferred so the secret doesn't end up in URL logs.
 
-- **App token** — per-Application token. Used to **push** messages. Send
-  as `?token=<token>` query param or `X-Gotify-Key: <token>` header.
-  This is what every client app must hold.
-- **User basic auth** (`admin:<password>`) — only for **management**:
-  create/delete Applications, manage users. Default admin password is
-  `admin` on a fresh deploy; rotate on first login.
-
-## Get an app token
-
-UI: log in at `https://gotify.hallm.local` → **Apps** → **Create Application**.
-Copy the token (it's only shown once in some UI versions; you can always
-refetch via API).
-
-API:
-
-```bash
-curl -sk -u admin:<password> -X POST https://gotify.hallm.local/application \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"my-service","description":"what this app sends"}'
-# → {"id":N,"token":"AgPSZ...","name":"my-service",...}
-```
-
-Store the token as `GOTIFY_APP_TOKEN` in the consumer's secret store
-(`~/.hallm/<service>.env` for hallm-resident services, or whatever the
-target project uses).
+Applications are pre-provisioned out of band. Ask the cluster operator
+for the token for your service and store it as `GOTIFY_APP_TOKEN` in the
+consumer's secret store (`~/.hallm/<service>.env` for hallm-resident
+services, or whatever the target project uses).
 
 ## Send a message
 
@@ -164,8 +145,7 @@ async def notify(title: str, message: str, *, priority: int = 5) -> None:
 | --- | --- |
 | `SSL: CERTIFICATE_VERIFY_FAILED` | Cerberus CA not trusted by the client. See **TLS** section. |
 | `Could not resolve host: gotify.hallm.local` | DNS not set up for this device. Same-host needs dnsmasq running (`hallm network apply`); tailnet peers need Split DNS configured. |
-| `401 unauthorized` on `POST /message` | App token wrong/revoked, or you sent user basic auth instead of the token. |
-| `403 forbidden` on `POST /application` | Used app token where user basic auth is required (management endpoints need admin). |
+| `401 unauthorized` on `POST /message` | App token missing, wrong, or revoked. Confirm `GOTIFY_APP_TOKEN` matches the Application you were given. |
 | Message succeeds (200) but phone doesn't buzz | Gotify Android app disconnected (battery saver killed VPN/websocket) or notification channel muted. Test from the web UI on the same browser before blaming the API. |
 | `Connection refused` from tailnet peer | dnsmasq isn't listening on the tailnet IP. On the host: `ss -lnup \| grep :53` should show the tailnet IP. If missing, add `listen-address=<tailnet-ip>` to `network/dnsmasq.d` and `sudo systemctl restart dnsmasq` (reload/SIGHUP does NOT re-bind sockets). |
 
