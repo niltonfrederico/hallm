@@ -18,8 +18,6 @@ from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyApp
 from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyStep
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterApp
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterStep
-from hallm.cli.subcommands.cluster.setup_builders.memory_mcp import MemoryMcpApp
-from hallm.cli.subcommands.cluster.setup_builders.memory_mcp import MemoryMcpStep
 from hallm.cli.subcommands.cluster.setup_builders.mount_storage import MountStorageStep
 from hallm.cli.subcommands.cluster.setup_builders.paperless import PaperlessApp
 from hallm.cli.subcommands.cluster.setup_builders.paperless import PaperlessStep
@@ -363,11 +361,6 @@ class TestSimpleServiceApps:
 
         with pytest.raises(SetupStepError, match="Jupyter Dockerfile not found"):
             JupyterStep().pre()
-
-    def test_memory_mcp(self) -> None:
-        step = MemoryMcpStep()
-        assert isinstance(step.app, MemoryMcpApp)
-        assert step.app.wait_target == "deploy/memory-mcp"
 
     def test_gotify(self) -> None:
         step = GotifyStep()

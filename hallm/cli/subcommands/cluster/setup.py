@@ -9,7 +9,6 @@ from hallm.cli.subcommands.cluster.setup_builders.cert_manager import CertManage
 from hallm.cli.subcommands.cluster.setup_builders.create_cluster import CreateClusterStep
 from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyStep
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterStep
-from hallm.cli.subcommands.cluster.setup_builders.memory_mcp import MemoryMcpStep
 from hallm.cli.subcommands.cluster.setup_builders.mount_storage import MountStorageStep
 from hallm.cli.subcommands.cluster.setup_builders.paperless import PaperlessStep
 from hallm.cli.subcommands.cluster.setup_builders.postgres import PostgresStep
@@ -59,7 +58,6 @@ def setup(
         RustfsStep(),
         PaperlessStep(),
         JupyterStep(),
-        MemoryMcpStep(),
         GotifyStep(),
     ]
     if settings.signoz_enabled:

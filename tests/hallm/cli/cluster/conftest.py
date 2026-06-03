@@ -20,7 +20,6 @@ def fake_k8s(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in (
         "cerberus.yaml",
         "jupyter.yaml",
-        "memory-mcp.yaml",
         "paperless.yaml",
         "postgres.yaml",
         "registries.yaml",

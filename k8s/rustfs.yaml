@@ -145,3 +145,35 @@ spec:
                 name: rustfs
                 port:
                   number: 9001
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rustfs-api-tailnet
+  namespace: default
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: rustfs
+      port:
+        number: 9000
+  tls:
+    - hosts: [s3]
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rustfs-console-tailnet
+  namespace: default
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: rustfs
+      port:
+        number: 9001
+  tls:
+    - hosts: [rustfs]
