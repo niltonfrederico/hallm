@@ -206,11 +206,17 @@ spec:
                 secretKeyRef:
                   name: hallm-env
                   key: IMMICH_DB_NAME
-            - name: REDIS_URL
+            - name: REDIS_HOSTNAME
+              value: valkey.default.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_DBINDEX
+              value: "4"
+            - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: hallm-env
-                  key: IMMICH_VALKEY_URL
+                  key: VALKEY_PASSWORD
             - name: IMMICH_MACHINE_LEARNING_URL
               value: http://immich-machine-learning.default.svc.cluster.local:3003
             - name: IMMICH_PORT
