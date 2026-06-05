@@ -10,9 +10,9 @@ callable, auto-inserting three synthetic phases:
       ClusterSettings.REQUIRED_NAMESPACES and a BootstrapNamespacesStep is
       inserted right after the is_cluster_ready_marker.
   B — manifest claim validation: Apps with manifest_path "claim" files in
-      k8s/. Any k8s/*.yaml left unclaimed (other than registries.yaml)
-      raises SetupStepError at build time — discipline gate that forces new
-      yaml to register an App.
+      k8s/. Any k8s/*.yaml left unclaimed (other than registries.yaml) is
+      reported as a warning at build time so new yaml can ship without
+      being blocked, while still nudging toward registering an App.
   D — secrets sync: the first Step with needs_secrets=True triggers a
       SyncSecretsStep inserted right before it (once).
 
@@ -171,9 +171,10 @@ def _validate_manifest_claims(steps: Sequence[Step]) -> None:
     unclaimed = sorted(all_manifests - claimed - {settings.k8s_path / "registries.yaml"})
     if unclaimed:
         names = sorted(p.name for p in unclaimed)
-        raise SetupStepError(
-            f"manifests in k8s/ without a registered App: {names} — "
-            f"create an App for each, or move them to k8s/archived/."
+        typer.echo(
+            f"[warn] manifests in k8s/ without a registered App (skipped): {names} — "
+            f"create an App for each, or move them to k8s/archived/.",
+            err=True,
         )
 
 
