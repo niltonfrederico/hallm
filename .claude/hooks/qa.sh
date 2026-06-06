@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! git status --porcelain | grep -qE '\.(py|toml|lock)$'; then
+    echo "QA: no Python changes — skipping"
+    exit 0
+fi
+
 docker compose down --remove-orphans 2>/dev/null || true
 
 docker compose --profile lint run --rm lint

@@ -333,6 +333,80 @@ class TestGetJson:
             assert kubectl.get_json(["pods"]) is None
 
 
+class TestScaleByLabel:
+    _LISTING_TWO = '{"items": [{"metadata": {"name": "a"}}, {"metadata": {"name": "b"}}]}'
+
+    def test_returns_matched_deployment_names(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ):
+            assert kubectl.scale_by_label("app=immich", 0) == ["a", "b"]
+
+    def test_passes_replicas_flag(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ) as mock:
+            kubectl.scale_by_label("app=immich", 3)
+        scale_cmd = mock.call_args_list[1].args[0]
+        assert "--replicas=3" in scale_cmd
+        assert "scale" in scale_cmd
+        assert "deploy" in scale_cmd
+        assert "app=immich" in scale_cmd
+
+    def test_default_namespace(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ) as mock:
+            kubectl.scale_by_label("app=foo", 0)
+        scale_cmd = mock.call_args_list[1].args[0]
+        assert scale_cmd[scale_cmd.index("-n") + 1] == "default"
+
+    def test_custom_namespace(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ) as mock:
+            kubectl.scale_by_label("app=foo", 0, namespace="kube-system")
+        scale_cmd = mock.call_args_list[1].args[0]
+        assert scale_cmd[scale_cmd.index("-n") + 1] == "kube-system"
+
+    def test_skips_items_with_missing_name(self) -> None:
+        listing = '{"items": [{"metadata": {"name": "a"}}, {"metadata": {}}]}'
+        with patch("subprocess.run", side_effect=[_cp(stdout=listing), _cp()]):
+            assert kubectl.scale_by_label("app=foo", 0) == ["a"]
+
+    def test_fails_when_listing_unparseable(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout="not-json")):
+            with pytest.raises(typer.Exit):
+                kubectl.scale_by_label("app=foo", 0)
+
+    def test_fails_when_kubectl_get_fails(self) -> None:
+        with patch("subprocess.run", return_value=_cp(returncode=1, stderr="bad")):
+            with pytest.raises(typer.Exit):
+                kubectl.scale_by_label("app=foo", 0)
+
+    def test_fails_when_no_matches(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout='{"items": []}')):
+            with pytest.raises(typer.Exit):
+                kubectl.scale_by_label("app=ghost", 0)
+
+    def test_fails_when_items_key_missing(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout="{}")):
+            with pytest.raises(typer.Exit):
+                kubectl.scale_by_label("app=foo", 0)
+
+    def test_fails_when_scale_command_errors(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp(returncode=1, stderr="boom")],
+        ):
+            with pytest.raises(typer.Exit):
+                kubectl.scale_by_label("app=foo", 0)
+
+
 class TestDeleteByLabel:
     def test_success_does_not_raise(self) -> None:
         with patch("subprocess.run", return_value=_cp()):

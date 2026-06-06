@@ -17,6 +17,7 @@ from hallm.cli.subcommands.cluster.setup_builders.rocm_plugin import ROCmPluginS
 from hallm.cli.subcommands.cluster.setup_builders.rustfs import RustfsStep
 from hallm.cli.subcommands.cluster.setup_builders.shared_volumes import SharedVolumesStep
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozStep
+from hallm.cli.subcommands.cluster.setup_builders.tailscale import TailscaleStep
 from hallm.cli.subcommands.cluster.setup_builders.traefik_config import TraefikConfigStep
 from hallm.cli.subcommands.cluster.setup_builders.trust_docker_ca import TrustDockerCaStep
 from hallm.cli.subcommands.cluster.setup_builders.unregistry import UnregistryStep
@@ -52,6 +53,7 @@ def setup(
         CertManagerStep(),
         CerberusPkiStep(),
         TrustDockerCaStep(),
+        TailscaleStep(),
         UnregistryStep(),
         PostgresStep(),
         ValkeyStep(),

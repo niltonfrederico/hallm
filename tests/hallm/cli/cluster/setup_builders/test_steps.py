@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import typer
 
 from hallm.cli.subcommands.cluster.setup_builders.base import SetupStepError
 from hallm.cli.subcommands.cluster.setup_builders.bootstrap_namespaces import (
@@ -33,6 +34,9 @@ from hallm.cli.subcommands.cluster.setup_builders.shared_volumes import SharedVo
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozApp
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozStep
 from hallm.cli.subcommands.cluster.setup_builders.sync_secrets import SyncSecretsStep
+from hallm.cli.subcommands.cluster.setup_builders.tailscale import TailscaleApp
+from hallm.cli.subcommands.cluster.setup_builders.tailscale import TailscaleStep
+from hallm.cli.subcommands.cluster.setup_builders.tailscale import _load_oauth_creds
 from hallm.cli.subcommands.cluster.setup_builders.traefik_config import TraefikConfigApp
 from hallm.cli.subcommands.cluster.setup_builders.traefik_config import TraefikConfigStep
 from hallm.cli.subcommands.cluster.setup_builders.trust_docker_ca import TrustDockerCaStep
@@ -418,6 +422,108 @@ class TestSharedVolumesStep:
             pytest.raises(typer.Exit),
         ):
             SharedVolumesStep().post_validate()
+
+
+class TestTailscaleStep:
+    def _write_creds(self, tmp_path: Path, body: str) -> Path:
+        creds = tmp_path / "tailscale.env"
+        creds.write_text(body)
+        return creds
+
+    def test_load_creds_parses_env_with_comments_and_quotes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._write_creds(
+            tmp_path,
+            '# header\n\nTS_OAUTH_CLIENT_ID=abc\nTS_OAUTH_CLIENT_SECRET="sekret"\nEXTRA=ignored\n',
+        )
+        monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path)
+        creds = _load_oauth_creds()
+        assert creds["TS_OAUTH_CLIENT_ID"] == "abc"
+        assert creds["TS_OAUTH_CLIENT_SECRET"] == "sekret"
+
+    def test_load_creds_missing_file_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path)
+        with pytest.raises(typer.Exit):
+            _load_oauth_creds()
+
+    def test_load_creds_missing_keys_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._write_creds(tmp_path, "TS_OAUTH_CLIENT_ID=abc\n")
+        monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path)
+        with pytest.raises(typer.Exit):
+            _load_oauth_creds()
+
+    def test_install_runs_helm_with_oauth_values(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._write_creds(
+            tmp_path,
+            "TS_OAUTH_CLIENT_ID=cid\nTS_OAUTH_CLIENT_SECRET=csec\n",
+        )
+        monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path)
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.tailscale.shell.run",
+            return_value=_cp(),
+        ) as mock_run:
+            TailscaleApp().install()
+        calls = [c.args[0] for c in mock_run.call_args_list]
+        assert calls[0] == [
+            "helm",
+            "repo",
+            "add",
+            "tailscale",
+            "https://pkgs.tailscale.com/helmcharts",
+        ]
+        assert calls[1] == ["helm", "repo", "update", "tailscale"]
+        install_cmd = calls[2]
+        assert install_cmd[:7] == [
+            "helm",
+            "upgrade",
+            "--install",
+            "tailscale-operator",
+            "tailscale/tailscale-operator",
+            "--namespace",
+            "tailscale",
+        ]
+        assert "oauth.clientId=cid" in install_cmd
+        assert "oauth.clientSecret=csec" in install_cmd
+
+    def test_repo_add_already_exists_is_idempotent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._write_creds(tmp_path, "TS_OAUTH_CLIENT_ID=a\nTS_OAUTH_CLIENT_SECRET=b\n")
+        monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path)
+        results = iter(
+            [
+                _cp(returncode=1, stderr="Error: repository name (tailscale) already exists"),
+                _cp(),
+                _cp(),
+            ]
+        )
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.tailscale.shell.run",
+            side_effect=lambda *a, **kw: next(results),
+        ):
+            TailscaleApp().install()  # no exception
+
+    def test_repo_add_other_error_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._write_creds(tmp_path, "TS_OAUTH_CLIENT_ID=a\nTS_OAUTH_CLIENT_SECRET=b\n")
+        monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path)
+        with patch(
+            "hallm.cli.subcommands.cluster.setup_builders.tailscale.shell.run",
+            return_value=_cp(returncode=1, stderr="permission denied"),
+        ):
+            with pytest.raises(typer.Exit):
+                TailscaleApp().install()
+
+    def test_step_namespace(self) -> None:
+        assert TailscaleStep().required_namespaces == frozenset({"tailscale"})
 
 
 class TestSignozStep:

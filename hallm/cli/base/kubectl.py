@@ -98,6 +98,43 @@ def wait(
         fail(f"{resource} did not reach condition={condition} within {timeout}.")
 
 
+def scale_by_label(
+    label: str,
+    replicas: int,
+    *,
+    namespace: str = "default",
+) -> list[str]:
+    """Scale every Deployment matching ``label`` to ``replicas``.
+
+    Returns the list of deployment names that were scaled, so callers can echo
+    a useful summary. Fails when no Deployment matches — silently scaling zero
+    resources is almost always a typo.
+    """
+    listing = get_json(["deploy", "-n", namespace, "-l", label])
+    if not isinstance(listing, dict):
+        fail(f"Failed to list deployments with selector {label!r} in namespace {namespace!r}.")
+    items = listing.get("items", []) or []
+    names = [item.get("metadata", {}).get("name", "") for item in items]
+    names = [n for n in names if n]
+    if not names:
+        fail(f"No deployments matched selector {label!r} in namespace {namespace!r}.")
+    result = run(
+        [
+            "kubectl",
+            "scale",
+            "deploy",
+            "-n",
+            namespace,
+            "-l",
+            label,
+            f"--replicas={replicas}",
+        ]
+    )
+    if result.returncode != 0:
+        fail(f"kubectl scale {label!r} failed:\n{result.stderr}")
+    return names
+
+
 def rollout_restart(resource: str, *, namespace: str = "default") -> None:
     """Trigger a rollout restart for a deployment, statefulset, or daemonset."""
     result = run(["kubectl", "rollout", "restart", resource, "-n", namespace])

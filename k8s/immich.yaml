@@ -117,6 +117,8 @@ metadata:
   namespace: default
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: immich
@@ -127,22 +129,19 @@ spec:
         app: immich
         component: machine-learning
     spec:
+      enableServiceLinks: false
       containers:
         - name: machine-learning
-          image: ghcr.io/immich-app/immich-machine-learning:release-rocm
-          env:
-            - name: HSA_OVERRIDE_GFX_VERSION
-              value: "10.3.0"
+          image: ghcr.io/immich-app/immich-machine-learning:release
           ports:
             - containerPort: 3003
           resources:
             requests:
               cpu: "200m"
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "4"
-              memory: 4Gi
-              amd.com/gpu: "1"
+              memory: 8Gi
           volumeMounts:
             - name: model-cache
               mountPath: /cache
@@ -291,6 +290,8 @@ kind: Ingress
 metadata:
   name: immich-tailnet
   namespace: default
+  annotations:
+    tailscale.com/funnel: "true"
 spec:
   ingressClassName: tailscale
   defaultBackend:
