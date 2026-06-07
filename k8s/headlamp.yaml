@@ -1,0 +1,141 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: headlamp
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: headlamp-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: headlamp
+    namespace: kube-system
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: headlamp-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: headlamp
+type: kubernetes.io/service-account-token
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: headlamp
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: headlamp
+  template:
+    metadata:
+      labels:
+        app: headlamp
+    spec:
+      serviceAccountName: headlamp
+      containers:
+        - name: headlamp
+          image: ghcr.io/headlamp-k8s/headlamp:latest
+          args:
+            - "-in-cluster"
+            - "-plugins-dir=/headlamp-plugins"
+          ports:
+            - containerPort: 4466
+          volumeMounts:
+            - name: hallm-links-plugin
+              mountPath: /headlamp-plugins/hallm-links
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 64Mi
+            limits:
+              cpu: "500m"
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 4466
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 4466
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: hallm-links-plugin
+          configMap:
+            name: headlamp-plugin-hallm-links
+            optional: true
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: headlamp
+  namespace: kube-system
+spec:
+  selector:
+    app: headlamp
+  ports:
+    - port: 80
+      targetPort: 4466
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headlamp
+  namespace: kube-system
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "true"
+    hallm.local/title: "Headlamp"
+    hallm.local/icon: "headlamp"
+    hallm.local/category: "infra"
+    hallm.local/description: "Kubernetes dashboard"
+spec:
+  tls:
+    - hosts: [headlamp.hallm.local]
+      secretName: headlamp-tls
+  rules:
+    - host: headlamp.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: headlamp
+                port:
+                  number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: headlamp-tailnet
+  namespace: kube-system
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: headlamp
+      port:
+        number: 80
+  tls:
+    - hosts: [headlamp]

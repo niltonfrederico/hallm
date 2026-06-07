@@ -273,6 +273,11 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: cerberus-ca
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "true"
+    hallm.local/title: "Paperless"
+    hallm.local/icon: "paperless-ngx"
+    hallm.local/category: "docs"
+    hallm.local/description: "Document management"
 spec:
   tls:
     - hosts: [paperless.hallm.local]

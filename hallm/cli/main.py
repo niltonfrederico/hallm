@@ -7,6 +7,7 @@ from hallm.cli.base.shell import run_or_fail as _run_or_fail
 from hallm.cli.subcommands import cluster
 from hallm.cli.subcommands import container
 from hallm.cli.subcommands import db
+from hallm.cli.subcommands import headlamp
 from hallm.cli.subcommands import mcp
 from hallm.cli.subcommands import network
 from hallm.cli.subcommands import secrets
@@ -24,13 +25,14 @@ app.add_typer(secrets.app, name="secrets")
 app.add_typer(container.app, name="container")
 app.add_typer(seed.app, name="seed")
 app.add_typer(network.app, name="network")
+app.add_typer(headlamp.app, name="headlamp")
 if settings.signoz_enabled:
     app.add_typer(signoz.app, name="signoz")
 
 
 @app.callback()
 def _callback(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand not in {"cluster", "seed", "signoz", "network"}:
+    if ctx.invoked_subcommand not in {"cluster", "seed", "signoz", "network", "headlamp"}:
         init_observability()
 
 

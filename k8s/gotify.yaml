@@ -81,6 +81,11 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: cerberus-ca
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "true"
+    hallm.local/title: "Gotify"
+    hallm.local/icon: "gotify"
+    hallm.local/category: "ops"
+    hallm.local/description: "Push notifications"
 spec:
   tls:
     - hosts: [gotify.hallm.local]

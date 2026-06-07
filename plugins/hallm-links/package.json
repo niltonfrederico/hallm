@@ -1,0 +1,16 @@
+{
+  "name": "hallm-links",
+  "version": "0.1.0",
+  "description": "Headlamp plugin: auto-discovers hallm services via Ingress annotations and renders dashboard cards with logos.",
+  "private": true,
+  "scripts": {
+    "build": "headlamp-plugin build",
+    "start": "headlamp-plugin start",
+    "format": "headlamp-plugin format",
+    "lint": "headlamp-plugin lint",
+    "tsc": "headlamp-plugin tsc"
+  },
+  "devDependencies": {
+    "@kinvolk/headlamp-plugin": "^0.14.0"
+  }
+}

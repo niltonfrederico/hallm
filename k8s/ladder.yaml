@@ -57,6 +57,11 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: cerberus-ca
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "true"
+    hallm.local/title: "Ladder"
+    hallm.local/icon: "wallabag"
+    hallm.local/category: "reading"
+    hallm.local/description: "Paywall-free article reader"
 spec:
   tls:
     - hosts: [ladder.hallm.local]

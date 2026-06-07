@@ -122,6 +122,11 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: cerberus-ca
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "true"
+    hallm.local/title: "Jupyter"
+    hallm.local/icon: "jupyter"
+    hallm.local/category: "data"
+    hallm.local/description: "Interactive notebooks"
 spec:
   tls:
     - hosts: [jupyter.hallm.local]

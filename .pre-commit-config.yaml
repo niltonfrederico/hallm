@@ -14,6 +14,13 @@ repos:
         args: [ --allow-multiple-documents ]
       - id: check-toml
       - id: check-added-large-files
+        name: check-added-large-files (non-image)
+        exclude_types: [image]
+        exclude: (^|/)(package-lock\.json|uv\.lock|poetry\.lock|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock)$
+      - id: check-added-large-files
+        name: check-added-large-files (image, 1MB)
+        types: [image]
+        args: [ --maxkb=1024 ]
       - id: check-merge-conflict
       - id: debug-statements
 
