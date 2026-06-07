@@ -2,6 +2,8 @@
 
 import base64
 import re
+import secrets as _secrets
+import string
 from pathlib import Path
 
 import typer
@@ -11,6 +13,10 @@ from hallm.cli.base import kubectl
 from hallm.cli.base.shell import fail as _fail
 from hallm.cli.base.shell import run_or_fail as _run_or_fail
 from hallm.core.settings import settings
+
+# Alphabet for human-typeable passwords: alphanumeric minus visually ambiguous
+# characters (I/l/1, O/0/o) — matches the fish `bwpg` helper.
+_PASSWORD_ALPHABET = "".join(c for c in string.ascii_letters + string.digits if c not in "Il1O0o")
 
 # ---------------------------------------------------------------------------
 # Cerberus CA helpers (shared with cluster setup)
@@ -205,6 +211,35 @@ def prepare() -> None:
     dest.write_text("\n".join(f"{k}={v}" for k, v in result.items()) + "\n")
     typer.echo(f"  {src} → {dest}")
     typer.echo("Done.")
+
+
+@app.command()
+def password(
+    length: int = typer.Option(32, "--length", "-l", help="Number of characters."),
+) -> None:
+    """Print a random alphanumeric password with no visually ambiguous characters.
+
+    Use for DB passwords, admin credentials — anything a human might re-type.
+    """
+    if length < 1:
+        _fail("--length must be >= 1")
+    typer.echo("".join(_secrets.choice(_PASSWORD_ALPHABET) for _ in range(length)))
+
+
+@app.command()
+def token(
+    length: int = typer.Option(64, "--length", "-l", help="Number of hex characters."),
+) -> None:
+    """Print a high-entropy hex token.
+
+    Use for SECRET_KEYs, JWT signing secrets, INTERNAL_TOKENs — anything
+    consumed by code, not humans. Length is in hex chars (each = 4 bits of
+    entropy), so the default 64 chars = 256 bits.
+    """
+    if length < 1:
+        _fail("--length must be >= 1")
+    nbytes = (length + 1) // 2
+    typer.echo(_secrets.token_hex(nbytes)[:length])
 
 
 @app.command("get-certificate")

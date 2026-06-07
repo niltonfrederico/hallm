@@ -225,6 +225,49 @@ class TestPrepare:
 
 
 # ---------------------------------------------------------------------------
+# password / token
+# ---------------------------------------------------------------------------
+
+
+class TestPassword:
+    def test_default_length(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["password"])
+        assert result.exit_code == 0
+        value = result.output.strip()
+        assert len(value) == 32
+        assert all(c.isalnum() and c not in "Il1O0o" for c in value)
+
+    def test_custom_length(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["password", "--length", "16"])
+        assert result.exit_code == 0
+        assert len(result.output.strip()) == 16
+
+    def test_invalid_length(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["password", "--length", "0"])
+        assert result.exit_code == 1
+        assert "--length must be >= 1" in result.output
+
+
+class TestToken:
+    def test_default_length(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["token"])
+        assert result.exit_code == 0
+        value = result.output.strip()
+        assert len(value) == 64
+        assert all(c in "0123456789abcdef" for c in value)
+
+    def test_odd_length(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["token", "-l", "7"])
+        assert result.exit_code == 0
+        assert len(result.output.strip()) == 7
+
+    def test_invalid_length(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["token", "--length", "0"])
+        assert result.exit_code == 1
+        assert "--length must be >= 1" in result.output
+
+
+# ---------------------------------------------------------------------------
 # get-certificate
 # ---------------------------------------------------------------------------
 
