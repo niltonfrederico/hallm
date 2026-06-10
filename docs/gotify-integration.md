@@ -12,7 +12,7 @@ project's `docs/` (or `.claude/`) so the assistant has the contract.
 | Health probe | `GET /health` → `{"health":"green","database":"green"}` |
 | Hosted by | Traefik Ingress in the `hallm` k3d cluster (namespace `default`) |
 | TLS | Self-signed by the **Cerberus CA** (cluster-issuer `cerberus-ca`) |
-| Reachable from | Same host always; other devices via Tailscale Split DNS for `hallm.local` → tailnet IP of the host running dnsmasq |
+| Reachable from | Same host that runs `dnsmasq` (local only). Other devices need their own resolver for `*.hallm.local` (e.g. /etc/hosts pointing at the host running Traefik). |
 
 ## Authentication
 
@@ -89,14 +89,11 @@ The cert is signed by the local self-signed Cerberus CA. Three options:
 Same machine: `dnsmasq` (managed by `hallm network apply`) resolves
 `*.hallm.local` automatically.
 
-Other devices on the tailnet (phone, laptop, CI box): configure
-**Tailscale Split DNS** in the admin console — Add nameserver, custom,
-IP = tailnet IP of the dnsmasq host, **Restrict to domain** = `hallm.local`.
-Then any tailnet peer resolves `*.hallm.local` correctly.
-
-Devices NOT on the tailnet have no way to resolve `*.hallm.local`. Either
-join them to the tailnet or expose gotify through a different ingress
-with a public DNS name.
+Other devices: no automatic resolution today. Options: add an
+`/etc/hosts` entry pointing `gotify.hallm.local` at the cluster host's
+LAN IP, or expose gotify through a different ingress with a public DNS
+name. (A Tailscale Split DNS setup used to handle this; it was removed
+when the tailnet was retired.)
 
 ## Python — use the hallm client if you're in this monorepo
 
@@ -144,14 +141,14 @@ async def notify(title: str, message: str, *, priority: int = 5) -> None:
 | Symptom | Cause |
 | --- | --- |
 | `SSL: CERTIFICATE_VERIFY_FAILED` | Cerberus CA not trusted by the client. See **TLS** section. |
-| `Could not resolve host: gotify.hallm.local` | DNS not set up for this device. Same-host needs dnsmasq running (`hallm network apply`); tailnet peers need Split DNS configured. |
+| `Could not resolve host: gotify.hallm.local` | DNS not set up for this device. Same-host needs dnsmasq running (`hallm network apply`); other hosts need an `/etc/hosts` entry or another resolver pointing at the cluster host. |
 | `401 unauthorized` on `POST /message` | App token missing, wrong, or revoked. Confirm `GOTIFY_APP_TOKEN` matches the Application you were given. |
 | Message succeeds (200) but phone doesn't buzz | Gotify Android app disconnected (battery saver killed VPN/websocket) or notification channel muted. Test from the web UI on the same browser before blaming the API. |
-| `Connection refused` from tailnet peer | dnsmasq isn't listening on the tailnet IP. On the host: `ss -lnup \| grep :53` should show the tailnet IP. If missing, add `listen-address=<tailnet-ip>` to `network/dnsmasq.d` and `sudo systemctl restart dnsmasq` (reload/SIGHUP does NOT re-bind sockets). |
+| `Connection refused` from another host | dnsmasq is listening on the host's loopback only; remote hosts can't reach it. Either add an `/etc/hosts` entry on the remote host or bind dnsmasq on a LAN-reachable address via `listen-address=` in `network/dnsmasq.d`, then `sudo systemctl restart dnsmasq`. |
 
 ## Quick smoke test
 
-From any tailnet-attached host with the CA trusted:
+From any host that can resolve `gotify.hallm.local` and trusts the Cerberus CA:
 
 ```bash
 curl -sk https://gotify.hallm.local/health

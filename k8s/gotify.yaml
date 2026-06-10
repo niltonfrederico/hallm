@@ -101,19 +101,3 @@ spec:
                 name: gotify
                 port:
                   number: 80
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: gotify-tailnet
-  namespace: default
-spec:
-  ingressClassName: tailscale
-  defaultBackend:
-    service:
-      name: gotify
-      port:
-        number: 80
-  tls:
-    - hosts: [gotify]

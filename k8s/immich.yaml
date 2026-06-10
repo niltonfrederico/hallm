@@ -288,21 +288,3 @@ spec:
                 name: immich
                 port:
                   number: 80
-
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: immich-tailnet
-  namespace: default
-  annotations:
-    tailscale.com/funnel: "true"
-spec:
-  ingressClassName: tailscale
-  defaultBackend:
-    service:
-      name: immich
-      port:
-        number: 80
-  tls:
-    - hosts: [immich]

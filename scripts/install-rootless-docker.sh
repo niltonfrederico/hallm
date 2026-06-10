@@ -39,7 +39,13 @@ for pkg in docker docker-rootless-extras slirp4netns fuse-overlayfs shadow; do
     fi
 done
 if (( ${#needed[@]} > 0 )); then
-    yay -S --needed --noconfirm "${needed[@]}"
+    if command -v paru >/dev/null 2>&1; then
+        paru -S --needed --noconfirm "${needed[@]}"
+    elif command -v yay >/dev/null 2>&1; then
+        yay -S --needed --noconfirm "${needed[@]}"
+    else
+        sudo pacman -S --needed --noconfirm "${needed[@]}"
+    fi
     done_ "installed: ${needed[*]}"
 fi
 
