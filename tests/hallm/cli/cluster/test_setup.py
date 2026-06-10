@@ -52,11 +52,28 @@ class TestSetupCommand:
             "hallm.cli.subcommands.cluster.setup_builders.cerberus_pki._secrets._export_cerberus_ca",
             "hallm.cli.subcommands.cluster.setup_builders.postgres._db._run_bootstrap",
             "hallm.cli.subcommands.cluster.setup_builders.signoz._signoz._run_bootstrap",
+            "hallm.cli.subcommands.cluster.setup_builders.headlamp._build_plugin",
+            "hallm.cli.subcommands.cluster.setup_builders.headlamp._pack_configmap",
             "hallm.cli.subcommands.cluster.setup_builders.base.kubectl.apply",
             "hallm.cli.subcommands.cluster.setup_builders.base.kubectl.apply_url",
             "hallm.cli.subcommands.cluster.setup_builders.base.kubectl.wait",
         ):
             stack.enter_context(patch(path))
+        # is_satisfied() probes — keep them returning False so the run() path
+        # exercises every Step rather than being short-circuited (and so we
+        # don't shell out to a real `kubectl` that the test container lacks).
+        stack.enter_context(
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.base.kubectl.probe",
+                return_value=False,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "hallm.cli.subcommands.cluster.setup_builders.wait_api._run",
+                return_value=_cp(returncode=1),
+            )
+        )
         stack.enter_context(
             patch(
                 "hallm.cli.subcommands.cluster.setup_builders.wait_api.poll_until",
