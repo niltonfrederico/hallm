@@ -7,6 +7,7 @@ from hallm.cli.subcommands.cluster.setup_builders import build_setup_pipeline
 from hallm.cli.subcommands.cluster.setup_builders.cerberus_pki import CerberusPkiStep
 from hallm.cli.subcommands.cluster.setup_builders.cert_manager import CertManagerStep
 from hallm.cli.subcommands.cluster.setup_builders.create_cluster import CreateClusterStep
+from hallm.cli.subcommands.cluster.setup_builders.gitea import GiteaStep
 from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyStep
 from hallm.cli.subcommands.cluster.setup_builders.headlamp import HeadlampStep
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterStep
@@ -18,6 +19,7 @@ from hallm.cli.subcommands.cluster.setup_builders.rocm_plugin import ROCmPluginS
 from hallm.cli.subcommands.cluster.setup_builders.rustfs import RustfsStep
 from hallm.cli.subcommands.cluster.setup_builders.shared_volumes import SharedVolumesStep
 from hallm.cli.subcommands.cluster.setup_builders.signoz import SignozStep
+from hallm.cli.subcommands.cluster.setup_builders.sure import SureStep
 from hallm.cli.subcommands.cluster.setup_builders.traefik_config import TraefikConfigStep
 from hallm.cli.subcommands.cluster.setup_builders.trust_docker_ca import TrustDockerCaStep
 from hallm.cli.subcommands.cluster.setup_builders.unregistry import UnregistryStep
@@ -60,6 +62,8 @@ def setup(
         PaperlessStep(),
         JupyterStep(),
         GotifyStep(),
+        GiteaStep(),
+        SureStep(),
         HeadlampStep(),
     ]
     if settings.signoz_enabled:
