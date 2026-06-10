@@ -50,6 +50,9 @@ def _health_env(
     file_matches: Callable[[Path, Path], bool] | bool = True,
     gethostbyname: Callable[[str], str] | str = "127.0.0.2",
     create_connection: Callable[..., object] = _socket_cm,
+    conf_dir_set: bool = True,
+    resolver_first: bool = True,
+    dig_answer: str | None = "127.0.0.1",
 ) -> Iterator[None]:
     """Single context manager bundling every patch the health command touches."""
     if subprocess_calls is None:
@@ -73,6 +76,18 @@ def _health_env(
             "hallm.cli.subcommands.network.socket.create_connection",
             side_effect=create_connection,
         ),
+        patch(
+            "hallm.cli.subcommands.network._dnsmasq_conf_dir_set",
+            return_value=conf_dir_set,
+        ),
+        patch(
+            "hallm.cli.subcommands.network._resolver_first_in_resolv_conf",
+            return_value=resolver_first,
+        ),
+        patch(
+            "hallm.cli.subcommands.network._dig_at",
+            return_value=dig_answer,
+        ),
     ):
         yield
 
@@ -86,12 +101,14 @@ def _health_env(
 #   0  caddy validate
 #   1  sudo install Caddyfile
 #   2  sudo install dnsmasq.d
-#   3  sudo install systemd unit
-#   4  sudo systemctl daemon-reload
-#   5  sudo systemctl enable --now hallm-caddy.service
-#   6  sudo systemctl reload-or-restart hallm-caddy.service
-#   7  sudo systemctl reload dnsmasq.service
-_APPLY_HAPPY = [_cp()] * 8
+#   3  sudo sh -c "grep ... || echo ... >> /etc/dnsmasq.conf" (ensure conf-dir)
+#   4  sudo install systemd unit
+#   5  sudo systemctl daemon-reload
+#   6  sudo systemctl enable --now hallm-caddy.service
+#   7  sudo systemctl reload-or-restart hallm-caddy.service
+#   8  sudo systemctl restart dnsmasq.service
+#   9  nmcli -t -f NAME,DEVICE,TYPE c show --active  (empty stdout → no NM target)
+_APPLY_HAPPY = [_cp()] * 9 + [_cp(stdout="")]
 
 
 class TestApply:
@@ -104,13 +121,14 @@ class TestApply:
 
         assert result.exit_code == 0
         assert "Network configuration applied" in result.output
-        assert mock.call_count == 8
+        assert mock.call_count == 10
         validate_cmd = mock.call_args_list[0][0][0]
         assert validate_cmd[0] == "/usr/bin/caddy"
         assert "validate" in validate_cmd
         assert str(network_dir / "Caddyfile") in validate_cmd
-        last_cmd = mock.call_args_list[-1][0][0]
-        assert last_cmd == ["sudo", "systemctl", "reload", "dnsmasq.service"]
+        commands = [call[0][0] for call in mock.call_args_list]
+        assert ["sudo", "systemctl", "restart", "dnsmasq.service"] in commands
+        assert ["nmcli", "-t", "-f", "NAME,DEVICE,TYPE", "c", "show", "--active"] in commands
 
     def test_renders_unit_with_caddy_path(self, network_dir: Path, runner: CliRunner) -> None:
         captured: dict[str, str] = {}
@@ -156,11 +174,12 @@ class TestApply:
             (0, "Caddyfile failed validation"),
             (1, "Failed to install /etc/caddy/Caddyfile"),
             (2, "Failed to install /etc/dnsmasq.d/hallm.conf"),
-            (3, "Failed to install /etc/systemd/system/hallm-caddy.service"),
-            (4, "daemon-reload failed"),
-            (5, "Failed to enable hallm-caddy.service"),
-            (6, "Failed to reload hallm-caddy.service"),
-            (7, "Failed to reload dnsmasq.service"),
+            (3, "Failed to ensure conf-dir in /etc/dnsmasq.conf"),
+            (4, "Failed to install /etc/systemd/system/hallm-caddy.service"),
+            (5, "daemon-reload failed"),
+            (6, "Failed to enable hallm-caddy.service"),
+            (7, "Failed to reload hallm-caddy.service"),
+            (8, "Failed to restart dnsmasq.service"),
         ],
     )
     def test_step_failures(
@@ -284,6 +303,174 @@ class TestHealth:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+class TestNmActiveConnections:
+    def test_nmcli_missing_returns_empty(self) -> None:
+        with patch("hallm.cli.subcommands.network._run", return_value=_cp(returncode=1)):
+            assert network._nm_active_connections() == []
+
+    def test_parses_three_column_output(self) -> None:
+        stdout = "Wired connection 1:enp42s0:802-3-ethernet\nbr0:br0:bridge\n"
+        with patch("hallm.cli.subcommands.network._run", return_value=_cp(stdout=stdout)):
+            conns = network._nm_active_connections()
+        assert conns == [
+            ("Wired connection 1", "enp42s0", "802-3-ethernet"),
+            ("br0", "br0", "bridge"),
+        ]
+
+    def test_skips_malformed_lines(self) -> None:
+        stdout = "good:dev:type\nshort:line\n"
+        with patch("hallm.cli.subcommands.network._run", return_value=_cp(stdout=stdout)):
+            conns = network._nm_active_connections()
+        assert conns == [("good", "dev", "type")]
+
+
+class TestEnsureNmDns:
+    def test_nmcli_absent_warns_and_returns(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with patch("hallm.cli.subcommands.network.shutil.which", return_value=None):
+            network._ensure_nm_dns()
+        captured = capsys.readouterr()
+        assert "nmcli not on PATH" in captured.out
+
+    def test_no_managed_targets_warns(self, capsys: pytest.CaptureFixture[str]) -> None:
+        # Only bridge-type connection — should be skipped → empty targets.
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/nmcli"),
+            patch(
+                "hallm.cli.subcommands.network._nm_active_connections",
+                return_value=[("br0", "br0", "bridge")],
+            ),
+        ):
+            network._ensure_nm_dns()
+        captured = capsys.readouterr()
+        assert "No active Ethernet/Wi-Fi" in captured.out
+
+    def test_applies_to_ethernet_target(self) -> None:
+        calls: list[list[str]] = []
+
+        def _capture(cmd: list[str], **_kwargs: object) -> object:
+            calls.append(cmd)
+            return _cp()
+
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/nmcli"),
+            patch(
+                "hallm.cli.subcommands.network._nm_active_connections",
+                return_value=[("Wired connection 1", "enp42s0", "802-3-ethernet")],
+            ),
+            patch("subprocess.run", side_effect=_capture),
+        ):
+            network._ensure_nm_dns(resolver="127.0.0.1")
+
+        modify = next(c for c in calls if "connection" in c and "modify" in c)
+        assert modify[:5] == ["sudo", "nmcli", "connection", "modify", "Wired connection 1"]
+        assert "ipv4.dns" in modify and "127.0.0.1" in modify
+        reapply = next(c for c in calls if "device" in c and "reapply" in c)
+        assert reapply == ["sudo", "nmcli", "device", "reapply", "enp42s0"]
+
+    def test_reapply_failure_warns_but_does_not_raise(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # First subprocess call is the connection modify (success); second is the
+        # device reapply which we simulate as failing.
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/nmcli"),
+            patch(
+                "hallm.cli.subcommands.network._nm_active_connections",
+                return_value=[("eth", "eth0", "802-3-ethernet")],
+            ),
+            patch("subprocess.run", side_effect=[_cp(), _cp(returncode=1)]),
+        ):
+            network._ensure_nm_dns()
+        captured = capsys.readouterr()
+        assert "reapply" in captured.out and "failed" in captured.out
+
+
+class TestDnsmasqConfDirSet:
+    def test_present(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        conf = tmp_path / "dnsmasq.conf"
+        conf.write_text("# header\nconf-dir=/etc/dnsmasq.d/,*.conf\n")
+        monkeypatch.setattr(network, "Path", lambda p: conf if "dnsmasq.conf" in p else Path(p))
+        assert network._dnsmasq_conf_dir_set() is True
+
+    def test_absent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        conf = tmp_path / "dnsmasq.conf"
+        conf.write_text("# header only\n")
+        monkeypatch.setattr(network, "Path", lambda p: conf if "dnsmasq.conf" in p else Path(p))
+        assert network._dnsmasq_conf_dir_set() is False
+
+    def test_file_missing_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _Missing:
+            def read_text(self) -> str:
+                raise OSError("ENOENT")
+
+        monkeypatch.setattr(network, "Path", lambda _p: _Missing())
+        assert network._dnsmasq_conf_dir_set() is False
+
+
+class TestResolverFirstInResolvConf:
+    def test_first_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _R:
+            def read_text(self) -> str:
+                return "# comment\nnameserver 127.0.0.1\nnameserver 1.1.1.1\n"
+
+        monkeypatch.setattr(network, "Path", lambda _p: _R())
+        assert network._resolver_first_in_resolv_conf("127.0.0.1") is True
+
+    def test_first_does_not_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _R:
+            def read_text(self) -> str:
+                return "nameserver 192.168.0.1\nnameserver 127.0.0.1\n"
+
+        monkeypatch.setattr(network, "Path", lambda _p: _R())
+        assert network._resolver_first_in_resolv_conf("127.0.0.1") is False
+
+    def test_no_nameserver_entries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _R:
+            def read_text(self) -> str:
+                return "# only comments\n\n"
+
+        monkeypatch.setattr(network, "Path", lambda _p: _R())
+        assert network._resolver_first_in_resolv_conf("127.0.0.1") is False
+
+    def test_file_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _Missing:
+            def read_text(self) -> str:
+                raise OSError("ENOENT")
+
+        monkeypatch.setattr(network, "Path", lambda _p: _Missing())
+        assert network._resolver_first_in_resolv_conf("127.0.0.1") is False
+
+
+class TestDigAt:
+    def test_dig_missing_returns_none(self) -> None:
+        with patch("hallm.cli.subcommands.network.shutil.which", return_value=None):
+            assert network._dig_at("host.local", "127.0.0.1") is None
+
+    def test_dig_rc_nonzero_returns_none(self) -> None:
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/dig"),
+            patch("hallm.cli.subcommands.network._run", return_value=_cp(returncode=1)),
+        ):
+            assert network._dig_at("host.local", "127.0.0.1") is None
+
+    def test_empty_answer_returns_none(self) -> None:
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/dig"),
+            patch("hallm.cli.subcommands.network._run", return_value=_cp(stdout="\n")),
+        ):
+            assert network._dig_at("host.local", "127.0.0.1") is None
+
+    def test_returns_first_answer(self) -> None:
+        with (
+            patch("hallm.cli.subcommands.network.shutil.which", return_value="/usr/bin/dig"),
+            patch(
+                "hallm.cli.subcommands.network._run",
+                return_value=_cp(stdout="127.0.0.1\n"),
+            ),
+        ):
+            assert network._dig_at("host.local", "127.0.0.1") == "127.0.0.1"
 
 
 class TestFileMatches:

@@ -29,9 +29,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # 1. Packages -----------------------------------------------------------------
-step "1/8 Installing packages (docker, docker-rootless-extras, slirp4netns, fuse-overlayfs, uidmap)"
+step "1/8 Installing packages (docker, docker-rootless-extras, docker-buildx, slirp4netns, fuse-overlayfs, uidmap, caddy, dnsmasq)"
 needed=()
-for pkg in docker docker-rootless-extras slirp4netns fuse-overlayfs shadow; do
+for pkg in docker docker-rootless-extras docker-buildx slirp4netns fuse-overlayfs shadow caddy dnsmasq; do
     if pacman -Qi "$pkg" >/dev/null 2>&1; then
         ok "$pkg already installed"
     else

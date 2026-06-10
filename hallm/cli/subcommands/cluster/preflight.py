@@ -1,6 +1,7 @@
 """Preflight checks for the local rootless Docker / k3d environment."""
 
 import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -12,6 +13,16 @@ from hallm.cli.base.shell import fail as _fail
 from hallm.cli.base.shell import run as _run
 from hallm.core.settings import ClusterSettings
 from hallm.core.settings import settings
+
+# (binary, hint) — binary checked with shutil.which, hint shown on miss.
+_REQUIRED_BINARIES: tuple[tuple[str, str], ...] = (
+    (
+        "kubectl",
+        "Install via your package manager (e.g. 'brew install kubectl' or 'pacman -S kubectl').",
+    ),
+    ("k3d", "Install via your package manager (e.g. 'brew install k3d' or 'paru -S k3d-bin')."),
+    ("npm", "Required to build the Headlamp hallm-links plugin during setup."),
+)
 
 
 def _check_docker_context_exists() -> tuple[bool, str | None]:
@@ -69,6 +80,22 @@ def _check_gpu_devices() -> tuple[bool, str | None]:
     return True, None
 
 
+def _check_docker_buildx() -> tuple[bool, str | None]:
+    result = _docker.run(["docker", "buildx", "version"])
+    if result.returncode == 0:
+        return True, None
+    return False, (
+        "Install docker-buildx (e.g. 'paru -S docker-buildx' or 'pacman -S docker-buildx'); "
+        "the rootless daemon needs the buildx plugin to build/push service images."
+    )
+
+
+def _check_binary(name: str, hint: str) -> tuple[bool, str | None]:
+    if shutil.which(name) is not None:
+        return True, None
+    return False, hint
+
+
 def _check_storage_owner() -> tuple[bool, str | None]:
     mount_path = settings.STORAGE_MOUNT_PATH
     if not mount_path.exists():
@@ -79,9 +106,15 @@ def _check_storage_owner() -> tuple[bool, str | None]:
 
 
 def _preflight_checks() -> tuple[tuple[str, Callable[[], tuple[bool, str | None]]], ...]:
+    binary_checks: tuple[tuple[str, Callable[[], tuple[bool, str | None]]], ...] = tuple(
+        (f"Binary '{name}' on PATH", lambda n=name, h=hint: _check_binary(n, h))
+        for name, hint in _REQUIRED_BINARIES
+    )
     return (
+        *binary_checks,
         (f"Docker context '{settings.DOCKER_CONTEXT}' exists", _check_docker_context_exists),
         ("Rootless Docker daemon reachable", _check_docker_daemon_reachable),
+        ("Docker buildx plugin available", _check_docker_buildx),
         ("Privileged ports (<=80) allowed for rootless", _check_unprivileged_ports),
         ("cgroup v2 delegation configured for user slice", _check_cgroup_delegation),
         ("GPU devices accessible (/dev/kfd, /dev/dri/renderD128)", _check_gpu_devices),

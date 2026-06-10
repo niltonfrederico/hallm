@@ -261,12 +261,17 @@ def _make_step(
 
 
 class TestBuildSetupPipelineManifestClaim:
-    def test_unclaimed_manifest_raises(self, fake_k8s: Path) -> None:
+    def test_unclaimed_manifest_warns(
+        self,
+        fake_k8s: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
         # `fake_k8s` populates k8s/ with every required manifest. Build with no
-        # Apps → all of them are unclaimed → builder raises.
-        with pytest.raises(SetupStepError) as info:
-            build_setup_pipeline([])
-        assert "without a registered App" in str(info.value)
+        # Apps → all of them are unclaimed → builder warns on stderr and keeps
+        # going so a freshly-added k8s/foo.yaml doesn't block the pipeline.
+        build_setup_pipeline([])
+        captured = capsys.readouterr()
+        assert "without a registered App" in captured.err
 
     def test_registries_yaml_ignored(self, fake_k8s: Path) -> None:
         # Sole remaining file = registries.yaml, which is excluded → build OK.

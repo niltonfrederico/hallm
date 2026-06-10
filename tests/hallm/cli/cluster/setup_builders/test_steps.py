@@ -17,6 +17,8 @@ from hallm.cli.subcommands.cluster.setup_builders.cert_manager import CertManage
 from hallm.cli.subcommands.cluster.setup_builders.create_cluster import CreateClusterStep
 from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyApp
 from hallm.cli.subcommands.cluster.setup_builders.gotify import GotifyStep
+from hallm.cli.subcommands.cluster.setup_builders.headlamp import HeadlampApp
+from hallm.cli.subcommands.cluster.setup_builders.headlamp import HeadlampStep
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterApp
 from hallm.cli.subcommands.cluster.setup_builders.jupyter import JupyterStep
 from hallm.cli.subcommands.cluster.setup_builders.mount_storage import MountStorageStep
@@ -426,6 +428,27 @@ class TestSignozStep:
         ) as mock:
             SignozApp().install()
         mock.assert_called_once()
+
+
+class TestHeadlampStep:
+    def test_app_targets_kube_system(self) -> None:
+        app = HeadlampApp()
+        assert app.namespace == "kube-system"
+        assert app.manifest_path == Path("headlamp.yaml")
+        assert app.wait_target == "deploy/headlamp"
+
+    def test_pre_builds_plugin_then_packs_configmap(self) -> None:
+        with (
+            patch("hallm.cli.subcommands.cluster.setup_builders.headlamp._build_plugin") as build,
+            patch("hallm.cli.subcommands.cluster.setup_builders.headlamp._pack_configmap") as pack,
+        ):
+            HeadlampStep().pre()
+        build.assert_called_once()
+        pack.assert_called_once()
+        # build must run before pack — the ConfigMap reads dist/main.js.
+        build_order = build.call_args_list[0]
+        pack_order = pack.call_args_list[0]
+        assert build_order is not None and pack_order is not None
 
     def test_step_namespace(self) -> None:
         step = SignozStep()

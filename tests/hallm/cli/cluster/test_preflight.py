@@ -141,6 +141,60 @@ class TestStorageOwner:
         assert ok is True
 
 
+class TestCheckDockerBuildx:
+    def test_present(self) -> None:
+        with patch("hallm.cli.subcommands.cluster.preflight._docker.run", return_value=_cp()):
+            ok, hint = pf._check_docker_buildx()
+        assert ok is True
+        assert hint is None
+
+    def test_missing(self) -> None:
+        with patch(
+            "hallm.cli.subcommands.cluster.preflight._docker.run", return_value=_cp(returncode=1)
+        ):
+            ok, hint = pf._check_docker_buildx()
+        assert ok is False
+        assert hint is not None and "docker-buildx" in hint
+
+
+class TestCheckBinary:
+    def test_on_path(self) -> None:
+        with patch("shutil.which", return_value="/usr/bin/kubectl"):
+            ok, hint = pf._check_binary("kubectl", "install kubectl")
+        assert ok is True
+        assert hint is None
+
+    def test_off_path_returns_hint(self) -> None:
+        with patch("shutil.which", return_value=None):
+            ok, hint = pf._check_binary("kubectl", "install kubectl")
+        assert ok is False
+        assert hint == "install kubectl"
+
+
+class TestPreflightChecksAssembly:
+    def test_includes_required_binaries(self) -> None:
+        labels = [label for label, _fn in pf._preflight_checks()]
+        for binary, _hint in pf._REQUIRED_BINARIES:
+            assert f"Binary '{binary}' on PATH" in labels
+        assert "Docker buildx plugin available" in labels
+
+    def test_binary_check_callable_uses_factory(self) -> None:
+        # Late-binding bug bait — make sure each lambda captures the binary name
+        # from its own iteration, not the loop's final value.
+        checks = pf._preflight_checks()
+        binary_labels = [
+            (label, fn)
+            for label, fn in checks
+            if label.startswith("Binary '") and label.endswith("' on PATH")
+        ]
+        assert len(binary_labels) == len(pf._REQUIRED_BINARIES)
+        with patch("shutil.which", return_value=None):
+            for _label, fn in binary_labels:
+                ok, hint = fn()
+                assert ok is False
+                assert hint is not None
+
+
 class TestRunPreflight:
     def test_passes_when_all_ok(self) -> None:
         checks = (
