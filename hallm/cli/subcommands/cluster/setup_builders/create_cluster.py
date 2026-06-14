@@ -44,6 +44,16 @@ class CreateClusterStep(Step):
                 str(settings.k8s_path / "registries.yaml"),
                 "--k3s-arg",
                 "--kubelet-arg=feature-gates=KubeletInUserNamespace=true@server:*",
+                # Disable kube-router's network policy controller. We run zero
+                # NetworkPolicies, and on the nf_tables backend its periodic
+                # full iptables-restore of the per-pod KUBE-POD-FW chains grows
+                # past the netlink socket buffer ("sendmsg: Message too large"),
+                # aborting mid-sync and leaving the filter table incomplete —
+                # which silently black-holes NEW flows to ClusterIPs while
+                # ESTABLISHED ones survive (old pods fine, new pods can't reach
+                # Services/DNS). Dropping it removes the failure mode entirely.
+                "--k3s-arg",
+                "--disable-network-policy@server:*",
                 "--timeout",
                 "15m0s",
             ],

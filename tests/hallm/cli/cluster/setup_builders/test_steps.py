@@ -146,6 +146,7 @@ class TestCreateClusterStep:
             and str(settings.SHARED_VOLUMES_PATH) in arg
             for arg in cmd
         )
+        assert "--disable-network-policy@server:*" in cmd
 
     def test_is_satisfied_true_when_cluster_listed(self) -> None:
         with patch(
