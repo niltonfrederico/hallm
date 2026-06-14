@@ -1,0 +1,37 @@
+# Leantime 3.9.4 with the PostgreSQL PDO driver.
+#
+# Upstream publishes no 3.9.x Docker image (the latest on Docker Hub is 3.8.0),
+# and that 3.8.0 image ships without pdo_pgsql — the driver was added in PR
+# #3447, merged four days after 3.8.0 was cut. We start from 3.8.0 for its
+# runtime stack (nginx / php-fpm / supervisor / start.sh — verified
+# byte-identical to 3.9.4), add the missing driver, then replace the bundled
+# app code with the 3.9.4 release tarball, which carries the Postgres
+# compatibility fixes (sequences, LIMIT-on-UPDATE rewrites) from the same PR.
+FROM leantime/leantime:3.8.0
+
+USER root
+
+# PostgreSQL PDO driver: postgresql-dev + PHPIZE_DEPS to compile, libpq at runtime.
+RUN set -ex; \
+    apk add --no-cache --virtual .pg-build $PHPIZE_DEPS postgresql-dev; \
+    docker-php-ext-install pdo_pgsql; \
+    apk add --no-cache libpq; \
+    apk del .pg-build; \
+    rm -rf /tmp/* /var/cache/apk/*
+
+# Swap the 3.8.0 app code for the 3.9.4 release (no published image for 3.9.x).
+ARG LEAN_VERSION=3.9.4
+RUN set -ex; \
+    curl -fsSL --retry 3 \
+      "https://github.com/Leantime/leantime/releases/download/v${LEAN_VERSION}/Leantime-v${LEAN_VERSION}.tar.gz" \
+      -o /tmp/leantime.tar.gz; \
+    find /var/www/html -mindepth 1 -delete; \
+    tar xzf /tmp/leantime.tar.gz --strip-components 1 -C /var/www/html; \
+    rm /tmp/leantime.tar.gz; \
+    mkdir -p /var/www/html/userfiles \
+             /var/www/html/public/userfiles \
+             /var/www/html/app/Plugins \
+             /var/www/html/storage/logs; \
+    chown -R www-data:www-data /var/www/html
+
+USER www-data

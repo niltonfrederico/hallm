@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: leantime-data
+  namespace: default
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leantime
+  namespace: default
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: leantime
+  template:
+    metadata:
+      labels:
+        app: leantime
+    spec:
+      containers:
+        - name: leantime
+          image: unregistry.hallm.local/hallm/leantime:latest
+          env:
+            - name: LEAN_APP_URL
+              value: https://leantime.hallm.local
+            - name: LEAN_DB_DEFAULT_CONNECTION
+              value: pgsql
+            - name: LEAN_DB_SCHEMA
+              value: public
+            - name: LEAN_DB_SSLMODE
+              value: disable
+            - name: LEAN_DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: POSTGRES_PORT
+            - name: LEAN_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: DATABASE_HOST
+            - name: LEAN_DB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: LEANTIME_DB_NAME
+            - name: LEAN_DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: LEANTIME_DB_USER
+            - name: LEAN_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: LEANTIME_DB_PASSWORD
+            - name: LEAN_SESSION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hallm-env
+                  key: LEANTIME_SESSION_PASSWORD
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: "100m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /var/www/html/userfiles
+              subPath: userfiles
+            - name: data
+              mountPath: /var/www/html/public/userfiles
+              subPath: public-userfiles
+            - name: data
+              mountPath: /var/www/html/app/Plugins
+              subPath: plugins
+            - name: logs
+              mountPath: /var/www/html/storage/logs
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: leantime-data
+        - name: logs
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: leantime
+  namespace: default
+spec:
+  selector:
+    app: leantime
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: leantime
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "true"
+    hallm.local/title: "Leantime"
+    hallm.local/icon: "leantime"
+    hallm.local/category: "productivity"
+    hallm.local/description: "Self-hosted project management"
+spec:
+  tls:
+    - hosts: [leantime.hallm.local]
+      secretName: leantime-tls
+  rules:
+    - host: leantime.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: leantime
+                port:
+                  number: 80
