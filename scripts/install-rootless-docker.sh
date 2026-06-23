@@ -29,9 +29,9 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # 1. Packages -----------------------------------------------------------------
-step "1/8 Installing packages (docker, docker-rootless-extras, docker-buildx, slirp4netns, fuse-overlayfs, uidmap, caddy, dnsmasq)"
+step "1/8 Installing packages (docker, docker-rootless-extras, docker-buildx, slirp4netns, fuse-overlayfs, uidmap, dnsmasq)"
 needed=()
-for pkg in docker docker-rootless-extras docker-buildx slirp4netns fuse-overlayfs shadow caddy dnsmasq; do
+for pkg in docker docker-rootless-extras docker-buildx slirp4netns fuse-overlayfs shadow dnsmasq; do
     if pacman -Qi "$pkg" >/dev/null 2>&1; then
         ok "$pkg already installed"
     else
@@ -143,7 +143,7 @@ fi
 # Storage mount ownership -----------------------------------------------------
 step "7/8 Ensuring $STORAGE_MOUNT_PATH is owned by $USER"
 if [[ ! -d "$STORAGE_MOUNT_PATH" ]]; then
-    skip "$STORAGE_MOUNT_PATH does not exist yet — 'hallm k3d setup' will mount it (re-run this script after first setup)"
+    skip "$STORAGE_MOUNT_PATH does not exist yet — 'hallm cluster setup' will mount it (re-run this script after first setup)"
 elif [[ "$(stat -c '%u' "$STORAGE_MOUNT_PATH")" == "$(id -u)" ]]; then
     ok "$STORAGE_MOUNT_PATH already owned by $USER"
 else
@@ -170,4 +170,4 @@ fi
 
 echo
 echo "Rootless Docker setup complete."
-echo "Run 'uv run hallm k3d preflight' next; if any check fails, re-login (or reboot) and retry."
+echo "Run 'uv run hallm cluster preflight' next; if any check fails, re-login (or reboot) and retry."

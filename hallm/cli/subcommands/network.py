@@ -24,7 +24,7 @@ app = typer.Typer(help="Local dnsmasq network setup.", no_args_is_help=True)
 
 
 # Repo-relative paths are resolved lazily so importing this module doesn't
-# require a discoverable hallm checkout (e.g. for `hallm k8s preflight`).
+# require a discoverable hallm checkout (e.g. for `hallm cluster preflight`).
 def _repo_dnsmasq() -> Path:
     return settings.network_path / "dnsmasq.d"
 

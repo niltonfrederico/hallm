@@ -50,4 +50,3 @@ Captured immediately before a planned `k3d cluster stop hallm` (for offline test
 | kube-system | unregistry-rl4tq | BestEffort | — | — | 0 | — | — | 22 Mi | **37 Mi** |
 
 _Totals: 20 pods · Σ requests 1.4 CPU / 2.20 Gi · Σ limits 10 CPU / 9.42 Gi · Σ mem peak 3.27 Gi._
-

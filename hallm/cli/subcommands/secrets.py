@@ -125,7 +125,7 @@ def _parse_secret_target(env_file: Path) -> tuple[str, str]:
 
 
 def _sync_secrets() -> None:
-    """Sync ~/.hallm/*.env files → Kubernetes Secrets (shared with k8s setup)."""
+    """Sync ~/.hallm/*.env files → Kubernetes Secrets (shared with cluster setup)."""
     secrets_dir = settings.SECRETS_PATH
     secrets_dir.mkdir(parents=True, exist_ok=True)
 

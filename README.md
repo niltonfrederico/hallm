@@ -14,7 +14,7 @@ LLM-powered assistant CLI for a local k3d cluster, backed by Postgres.
 | Database | Postgres 17 |
 | Tests | Pytest + pytest-cov (98 % floor) |
 | Containers | Docker Compose |
-| Local Kubernetes | k3d (managed via `hallm k8s`) |
+| Local Kubernetes | k3d (managed via `hallm cluster`) |
 | TLS | cert-manager + self-signed CA |
 
 ## Getting started
@@ -91,38 +91,40 @@ docker compose up --build
 
 ```bash
 uv run hallm                 # root help
-uv run hallm k8s             # cluster lifecycle + ops help
+uv run hallm cluster         # cluster lifecycle help
 uv run hallm db bootstrap    # create per-service databases
 uv run hallm container publish <name>   # build + push a Docker image
 ```
 
 | Namespace | Commands |
 | --- | --- |
-| `hallm k8s` | `preflight`, `setup`, `healthcheck`, `nuke`, `get-cert`, `sync-secrets`, `remove` |
+| `hallm cluster` | `preflight`, `diagnose`, `mount`, `setup`, `nuke`, `healthcheck`, `start`, `stop` |
 | `hallm db` | `bootstrap` |
-| `hallm container` | `publish` |
+| `hallm secrets` | `apply`, `prepare`, `password`, `token`, `get-certificate` |
+| `hallm container` | `publish`, `deploy`, `remove` |
 | `hallm network` | `apply`, `health` |
+| `hallm headlamp` | `sync` |
 
 ## Local Kubernetes cluster
 
-The `hallm k8s` namespace manages a local k3d cluster that mirrors the
+The `hallm cluster` namespace manages a local k3d cluster that mirrors the
 production environment. Manifests live in [`k8s/`](k8s/); the CLI provisions
 and tears the cluster down on a dedicated rootless Docker daemon.
 
 ```bash
 # create cluster, install GPU device plugin + cert-manager, bootstrap Cerberus CA
-uv run hallm k8s setup
+uv run hallm cluster setup
 # verify cluster health and run GPU + DNS smoke tests
-uv run hallm k8s healthcheck
+uv run hallm cluster healthcheck
 # destroy the cluster (add --volumes to also wipe PVC data)
-uv run hallm k8s nuke
+uv run hallm cluster nuke
 ```
 
 ### `setup` flow
 
 ```mermaid
 flowchart TD
-    START([hallm k8s setup]) --> PREFLIGHT[Run preflight checks\nDocker context · cgroups · GPU · storage]
+    START([hallm cluster setup]) --> PREFLIGHT[Run preflight checks\nDocker context · cgroups · GPU · storage]
     PREFLIGHT --> PRE_OK{Pass?}
     PRE_OK -- No --> ABORT([Abort])
     PRE_OK -- Yes --> SECRETS[Create ~/.hallm/ secrets dir]
@@ -206,10 +208,10 @@ uv run hallm network health    # binaries, service, drift, DNS resolution
 hallm/
 ├── cli/        # Typer CLI entry-points
 │   ├── base/   # Shared subprocess / kubectl / docker / poll / template helpers
-│   └── subcommands/   # k8s, db, container
+│   └── subcommands/   # cluster, db, secrets, container, network, headlamp
 ├── core/       # Settings, HTTP base, storage / cache / clients
 └── db/         # Tortoise ORM models and helpers
-k8s/            # Kubernetes manifests (applied by `hallm k8s setup`)
+k8s/            # Kubernetes manifests (applied by `hallm cluster setup`)
 network/        # dnsmasq config for *.hallm.local resolution
 tests/          # Pytest test suite (mirrors hallm/ layout)
 docker/         # Dockerfiles

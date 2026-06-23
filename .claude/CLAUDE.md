@@ -40,10 +40,13 @@ hallm/
 │   │   └── template.py          # ##KEY## placeholder rendering
 │   ├── main.py                  # Typer root app
 │   └── subcommands/
-│       ├── k8s.py               # cluster lifecycle + cluster operations
+│       ├── cluster/             # lifecycle: preflight/diagnose/mount/setup/nuke/healthcheck/start/stop
 │       ├── db.py                # bootstrap (per-service DB creation)
+│       ├── secrets.py           # apply, prepare, password, token, get-certificate
 │       ├── network.py           # apply, health (dnsmasq)
-│       └── container.py         # publish
+│       ├── headlamp.py          # sync
+│       ├── signoz.py            # bootstrap (gated by SIGNOZ_ENABLED)
+│       └── container.py         # publish, deploy, remove
 ├── core/
 │   ├── settings.py              # Class-level env reads + cached_property DB
 │   ├── _http.py                 # BaseAsyncHTTPClient (paperless + gotify)
@@ -58,7 +61,7 @@ hallm/
 │   │   ├── mixins.py            # TimestampMixin
 │   │   └── fields.py            # SlugField, URLField, FileField, ImageField, StoredFile
 │   └── migrations/
-k8s/                             # Kubernetes manifests applied by `hallm k8s setup`
+k8s/                             # Kubernetes manifests applied by `hallm cluster setup`
 network/                         # dnsmasq config for *.hallm.local (`hallm network apply`)
 tests/                           # Mirror of hallm/ layout
 ```
@@ -166,21 +169,23 @@ commands locate the active checkout in this order:
    `hallm install`).
 
 Commands that work from any cwd, with or without a discoverable repo:
-`k8s preflight`, `k8s nuke`, `k8s get-cert`, `secrets sync`,
-and `container build/deploy/remove` when a manifest/Dockerfile **path** is
-passed instead of a name. `k8s healthcheck` skips smoke tests with a notice
+`cluster preflight`, `cluster nuke`, `secrets get-certificate`, `secrets apply`,
+and `container publish/deploy/remove` when a manifest/Dockerfile **path** is
+passed instead of a name. `cluster healthcheck` skips smoke tests with a notice
 when no checkout is found.
 
-Commands that require a discoverable repo: `k8s setup`, `network apply`,
-`db bootstrap`, `signoz install`, and any `container deploy/remove <name>`
+Commands that require a discoverable repo: `cluster setup`, `network apply`,
+`db bootstrap`, `signoz bootstrap`, and any `container deploy/remove <name>`
 form (which resolves against `$repo/k8s/<name>.yaml`).
 
-## Local Kubernetes cluster (k8s namespace)
+## Local Kubernetes cluster (cluster namespace)
 
 The repo includes a `k8s/` directory with Kubernetes manifests for the local
-dev environment. The CLI namespace is `hallm k8s` — it covers both cluster
-lifecycle (preflight/setup/healthcheck/nuke/get-cert) and cluster operations
-(sync-secrets/remove).
+dev environment. The CLI namespace is `hallm cluster` — it covers the cluster
+lifecycle: preflight/diagnose/mount/setup/nuke/healthcheck/start/stop. Secret
+syncing lives under `hallm secrets apply`, cert export under
+`hallm secrets get-certificate`, and per-service teardown under
+`hallm container remove`.
 
 ### Cluster overview
 
@@ -202,12 +207,12 @@ default Docker daemon stays untouched. Every `k3d` and `docker` invocation
 from the hallm CLI is pinned to the `hallm` Docker context via the
 `DOCKER_CONTEXT` env var — see `hallm/cli/base/docker.py`.
 
-Before the first `hallm k8s setup`, run the install script once:
+Before the first `hallm cluster setup`, run the install script once:
 
 ```bash
 ./scripts/install-rootless-docker.sh   # idempotent; safe to re-run
 # Re-login (or reboot) so cgroup delegation and render/video groups apply.
-uv run hallm k8s preflight             # verify everything is in place
+uv run hallm cluster preflight         # verify everything is in place
 ```
 
 The context name is configurable via `HALLM_DOCKER_CONTEXT` (default `hallm`).
@@ -215,16 +220,20 @@ The context name is configurable via `HALLM_DOCKER_CONTEXT` (default `hallm`).
 ### CLI commands
 
 ```bash
-# Cluster lifecycle
-uv run hallm k8s preflight    # verify rootless Docker, cgroups, GPU, storage
-uv run hallm k8s setup        # create cluster + Cerberus CA + service manifests
-uv run hallm k8s healthcheck  # cluster + GPU + Cerberus + ports + smoke tests
-uv run hallm k8s nuke         # delete the cluster (add --volumes to wipe PVC data)
-uv run hallm k8s get-cert     # save Cerberus CA cert+key to ~/.hallm/
+# Cluster lifecycle (hallm cluster)
+uv run hallm cluster preflight    # verify rootless Docker, cgroups, GPU, storage
+uv run hallm cluster setup        # create cluster + Cerberus CA + service manifests
+uv run hallm cluster healthcheck  # cluster + GPU + Cerberus + ports + smoke tests
+uv run hallm cluster diagnose     # collect cluster diagnostics
+uv run hallm cluster mount        # mount the storage device for PVC data
+uv run hallm cluster nuke         # delete the cluster (add --volumes to wipe PVC data)
+uv run hallm cluster start        # start the stopped cluster
+uv run hallm cluster stop         # stop the cluster without deleting it
 
-# Cluster operations
-uv run hallm k8s sync-secrets    # apply ~/.hallm/*.env as Kubernetes Secrets
-uv run hallm k8s remove <name>   # delete a manifest + sweep app-labelled resources
+# Secrets + per-service operations
+uv run hallm secrets apply            # apply ~/.hallm/*.env as Kubernetes Secrets
+uv run hallm secrets get-certificate  # save Cerberus CA cert+key to ~/.hallm/
+uv run hallm container remove <name>  # delete a manifest + sweep app-labelled resources
 ```
 
 ### k8s/ file layout
@@ -241,7 +250,7 @@ k8s/
 ```
 
 Manifests under `k8s/archived/` are preserved for future revival but not
-applied by `hallm k8s setup`. Move a manifest back to `k8s/` and flip the
+applied by `hallm cluster setup`. Move a manifest back to `k8s/` and flip the
 matching feature flag to re-enable a service.
 
 ### GPU workloads

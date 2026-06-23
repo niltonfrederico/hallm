@@ -73,7 +73,7 @@ The cert is signed by the local self-signed Cerberus CA. Three options:
 
 1. **Verify properly** (recommended for long-lived services): bundle the
    Cerberus CA cert into the consumer. Fetch it on the host that owns
-   the cluster with `uv run hallm k8s get-cert` (writes
+   the cluster with `uv run hallm secrets get-certificate` (writes
    `~/.hallm/cerberus-ca.crt`). Then point your HTTP client at it
    (Python: `verify="/path/to/cerberus-ca.crt"`; Node:
    `NODE_EXTRA_CA_CERTS=/path/to/cerberus-ca.crt`).

@@ -82,7 +82,7 @@ If a file with that name already exists, ask whether to overwrite or pick a diff
 
 ### 5. Write the file
 
-Use the `Write` tool. Don't run `kubectl apply` — that's the user's call (`uv run hallm k8s sync-secrets` / manual `kubectl apply -f`).
+Use the `Write` tool. Don't run `kubectl apply` — that's the user's call (`uv run hallm secrets apply` / manual `kubectl apply -f`).
 
 ### 6. Commit the change
 

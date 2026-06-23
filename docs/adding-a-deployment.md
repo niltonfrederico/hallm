@@ -7,7 +7,7 @@ prior knowledge of hallm.
 
 `hallm` is a local development environment that runs a single-node Kubernetes
 cluster (`k3d` — k3s in Docker) on the developer's workstation. The cluster
-is bootstrapped by `hallm k8s setup` and exposes:
+is bootstrapped by `hallm cluster setup` and exposes:
 
 | Thing | Value |
 | --- | --- |
@@ -26,7 +26,7 @@ To add a service named `myapp`, write:
 2. `k8s/myapp.yaml` — Deployment + Service + Ingress (+ optional PVC).
 3. New keys in `~/.hallm/hallm.env` if the app needs secrets.
 4. (Internal-only) register a setup step — only needed if your service must be
-   part of `hallm k8s setup`. Day-to-day deploys do not require this.
+   part of `hallm cluster setup`. Day-to-day deploys do not require this.
 
 ## Manifest template
 
@@ -168,7 +168,7 @@ MYAPP_SOME_SECRET=...
 Sync into the cluster as the `hallm-env` Secret:
 
 ```bash
-hallm k8s sync-secrets
+hallm secrets apply
 ```
 
 Reference from the manifest:
@@ -243,9 +243,9 @@ you want a clean slate.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Pod `ImagePullBackOff` for `unregistry.hallm.local/...` | Image not built or registry trust missing. | `hallm container publish myapp`; if still failing, re-run `hallm k8s setup` so the registry CA is trusted again. |
+| Pod `ImagePullBackOff` for `unregistry.hallm.local/...` | Image not built or registry trust missing. | `hallm container publish myapp`; if still failing, re-run `hallm cluster setup` so the registry CA is trusted again. |
 | Ingress shows no address | TLS secret not issued yet by cert-manager. | Wait ~30s; check `kubectl describe ingress myapp` and `kubectl get certificate`. |
-| `https://myapp.hallm.local` resolves but Browser warns | Cerberus CA not in your OS/browser trust store. | Import `~/.hallm/cerberus-ca.pem` (produced by `hallm k8s get-cert`). |
+| `https://myapp.hallm.local` resolves but Browser warns | Cerberus CA not in your OS/browser trust store. | Import `~/.hallm/cerberus-ca.pem` (produced by `hallm secrets get-certificate`). |
 | `PVC pending` for your own `*-data` PVC | Typo in `storageClassName` (must be `local-path`). | Fix and `kubectl apply -f k8s/myapp.yaml` again. |
 | Files written through `shared-volumes` invisible on host | Forgot `subPath`, or container UID doesn't match host user. | Add `subPath: myapp`. For UID mismatches, set `securityContext.fsGroup: 1000` on the Pod. |
 | `hallm container remove myapp` left a PVC behind | PVC missing `app: myapp` label. | Add the label, or `kubectl delete pvc <name>` manually. |
