@@ -30,6 +30,8 @@ class CreateClusterStep(Step):
                 f"{settings.STORAGE_MOUNT_PATH}:/var/lib/rancher/k3s/storage@all",
                 "--volume",
                 f"{settings.SHARED_VOLUMES_PATH}:{settings.SHARED_VOLUMES_NODE_PATH}@all",
+                "--volume",
+                f"{settings.CONFIG_VOLUMES_PATH}:{settings.CONFIG_VOLUMES_NODE_PATH}@all",
                 "-p",
                 "80:80@loadbalancer",
                 "-p",

@@ -30,3 +30,37 @@ spec:
     requests:
       storage: 100Gi
   volumeName: shared-volumes
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: config-volumes
+  labels:
+    app: config-volumes
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hallm-config
+  hostPath:
+    path: /var/lib/hallm/config
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: default
+    name: config-volumes
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: config-volumes
+  namespace: default
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: hallm-config
+  resources:
+    requests:
+      storage: 20Gi
+  volumeName: config-volumes

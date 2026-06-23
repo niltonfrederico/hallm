@@ -119,10 +119,12 @@ class TestMountStorageStep:
     ) -> None:
         monkeypatch.setattr(settings, "SECRETS_PATH", tmp_path / "secrets")
         monkeypatch.setattr(settings, "SHARED_VOLUMES_PATH", tmp_path / "shared-volumes")
+        monkeypatch.setattr(settings, "CONFIG_VOLUMES_PATH", tmp_path / "config")
         step = MountStorageStep()
         step.pre()
         assert (tmp_path / "secrets").is_dir()
         assert (tmp_path / "shared-volumes").is_dir()
+        assert (tmp_path / "config").is_dir()
 
         with patch(
             "hallm.cli.subcommands.cluster.setup_builders.mount_storage._mount_storage"
@@ -144,6 +146,11 @@ class TestCreateClusterStep:
         assert any(
             arg.endswith(f":{settings.SHARED_VOLUMES_NODE_PATH}@all")
             and str(settings.SHARED_VOLUMES_PATH) in arg
+            for arg in cmd
+        )
+        assert any(
+            arg.endswith(f":{settings.CONFIG_VOLUMES_NODE_PATH}@all")
+            and str(settings.CONFIG_VOLUMES_PATH) in arg
             for arg in cmd
         )
         assert "--disable-network-policy@server:*" in cmd

@@ -63,8 +63,16 @@ class Settings:
 
     # Host directory exposed inside the cluster as a shared ReadWriteMany volume.
     # Pods bind subpaths of SHARED_VOLUMES_NODE_PATH via the `shared-volumes` PVC.
-    SHARED_VOLUMES_PATH: Path = Path.home() / ".hallm" / "shared-volumes"
+    # Lives on the roomy `powah` partition so bulk media never fills $HOME.
+    SHARED_VOLUMES_PATH: Path = Path.home() / "powah" / ".hallm-shared-volume"
     SHARED_VOLUMES_NODE_PATH: Path = Path("/var/lib/hallm/shared")
+
+    # Host directory for per-service configuration, exposed inside the cluster
+    # as a ReadWriteMany volume. Pods bind subpaths of CONFIG_VOLUMES_NODE_PATH
+    # via the `config-volumes` PVC. A dedicated subdir under ~/.hallm (not the
+    # directory itself) keeps cluster pods away from the secrets/certs there.
+    CONFIG_VOLUMES_PATH: Path = Path.home() / ".hallm" / "config"
+    CONFIG_VOLUMES_NODE_PATH: Path = Path("/var/lib/hallm/config")
 
     # ------------------------------------------------------------------
     # Environment-driven (all have defaults so module import never fails)
