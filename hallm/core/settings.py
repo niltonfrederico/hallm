@@ -78,11 +78,10 @@ class Settings:
 
     # Feature flags for archived integrations.  Manifests for these services
     # live under k8s/archived/; flipping a flag back to True re-enables the
-    # related Python wiring (CLI command registration, observability exporter,
-    # HTTP client construction).  Move the manifest back to k8s/ to actually
-    # deploy the service when re-enabling.
+    # related Python wiring (CLI command registration, HTTP client
+    # construction).  Move the manifest back to k8s/ to actually deploy the
+    # service when re-enabling.
     signoz_enabled: bool = env.bool("SIGNOZ_ENABLED", False)
-    glitchtip_enabled: bool = env.bool("GLITCHTIP_ENABLED", False)
     gotify_enabled: bool = env.bool("GOTIFY_ENABLED", True)
 
     # RustFS (S3-compatible object storage)
@@ -106,19 +105,6 @@ class Settings:
     paperless_url: str = env.str("PAPERLESS_URL", "https://paperless.hallm.local")
     paperless_token: str = env.str("PAPERLESS_TOKEN", "")
     paperless_db_password: str = env.str("PAPERLESS_DB_PASSWORD", "")
-
-    # Glitchtip (Sentry-compatible error tracking)
-    glitchtip_dsn: str = env.str("GLITCHTIP_DSN", "")
-    glitchtip_db_password: str = env.str("GLITCHTIP_DB_PASSWORD", "")
-    # Fraction of OTEL spans to forward to Glitchtip via SentrySpanProcessor.
-    # 1.0 captures every span (fine on the dev cluster); lower in production.
-    sentry_traces_sample_rate: float = env.float("SENTRY_TRACES_SAMPLE_RATE", 1.0)
-
-    # SigNoz / OpenTelemetry
-    otel_endpoint: str = env.str(
-        "OTEL_ENDPOINT", "http://signoz-otel-collector.signoz.svc.cluster.local:4318"
-    )
-    otel_service_name: str = env.str("OTEL_SERVICE_NAME", "hallm")
 
     # Spotify API (your_spotify)
     spotify_client_id: str = env.str("SPOTIFY_CLIENT_ID", "")

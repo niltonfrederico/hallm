@@ -22,7 +22,7 @@ def test_root_no_args_shows_help(runner: CliRunner) -> None:
 def test_root_help_lists_all_subcommands(runner: CliRunner) -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for name in ("mcp", "db", "cluster", "container", "seed"):
+    for name in ("db", "cluster", "container", "network"):
         assert name in result.output
 
 

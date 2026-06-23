@@ -1,6 +1,6 @@
 # hallm
 
-LLM-powered assistant exposing an MCP server and a CLI interface, backed by Postgres.
+LLM-powered assistant CLI for a local k3d cluster, backed by Postgres.
 
 ## Stack
 
@@ -8,7 +8,6 @@ LLM-powered assistant exposing an MCP server and a CLI interface, backed by Post
 | --- | --- |
 | Language | Python 3.14 |
 | Package manager | [uv](https://docs.astral.sh/uv/) |
-| MCP server | [FastMCP](https://github.com/jlowin/fastmcp) |
 | CLI | [Typer](https://typer.tiangolo.com/) |
 | Type checker | [ty](https://github.com/astral-sh/ty) |
 | Linter / formatter | [Ruff](https://docs.astral.sh/ruff/) |
@@ -46,9 +45,6 @@ docker compose up db -d
 
 # Run migrations
 uv run tortoise migrate
-
-# Run the MCP server
-uv run hallm mcp serve
 ```
 
 ### Commit tooling
@@ -97,7 +93,6 @@ docker compose up --build
 uv run hallm                 # root help
 uv run hallm k8s             # cluster lifecycle + ops help
 uv run hallm db bootstrap    # create per-service databases
-uv run hallm mcp serve       # start the MCP server
 uv run hallm container publish <name>   # build + push a Docker image
 ```
 
@@ -105,7 +100,6 @@ uv run hallm container publish <name>   # build + push a Docker image
 | --- | --- |
 | `hallm k8s` | `preflight`, `setup`, `healthcheck`, `nuke`, `get-cert`, `sync-secrets`, `remove` |
 | `hallm db` | `bootstrap` |
-| `hallm mcp` | `serve` |
 | `hallm container` | `publish` |
 | `hallm network` | `apply`, `health` |
 
@@ -189,28 +183,22 @@ resources:
 `HSA_OVERRIDE_GFX_VERSION=10.3.0` is required because the RX 6600
 (RDNA2 / GFX 10.3) is not in ROCm's official support matrix.
 
-## Local Caddy + dnsmasq
+## Local dnsmasq
 
-The `hallm network` namespace wires up a local Caddy reverse proxy plus
-dnsmasq entries that route `openclaw.hallm.local` to the OpenClaw gateway
-running on `127.0.0.1:18789`. Caddy binds to `127.0.0.2:80` so it doesn't
-fight the k3d cluster's Traefik on `127.0.0.1:80/443`.
+The `hallm network` namespace wires up local dnsmasq entries so that
+`*.hallm.local` resolves to `127.0.0.1` — the k3d cluster's Traefik on
+`127.0.0.1:80/443`.
 
 Source-of-truth files live in [`network/`](network/):
 
 | File | Installed at | Notes |
 | --- | --- | --- |
-| `network/Caddyfile` | `/etc/caddy/Caddyfile` | reverse-proxies to `localhost:18789` |
-| `network/dnsmasq.d` | `/etc/dnsmasq.d/hallm.conf` | maps `openclaw.hallm.local` → `127.0.0.2`, `hallm.local` → `127.0.0.1` |
-| `network/hallm-caddy.service.tpl` | `/etc/systemd/system/hallm-caddy.service` | rendered with the discovered `caddy` binary path |
+| `network/dnsmasq.d` | `/etc/dnsmasq.d/hallm.conf` | maps `hallm.local` → `127.0.0.1` |
 
 ```bash
-uv run hallm network apply     # install configs (sudo) + reload caddy/dnsmasq
-uv run hallm network health    # binaries, services, drift, DNS, TCP reachability
+uv run hallm network apply     # install config (sudo) + reload dnsmasq
+uv run hallm network health    # binaries, service, drift, DNS resolution
 ```
-
-The OpenClaw gateway port (`18789`) comes from `~/.openclaw/openclaw.json`
-under `gateway.port`. Update both files together if you ever change it.
 
 ## Project structure
 
@@ -218,12 +206,11 @@ under `gateway.port`. Update both files together if you ever change it.
 hallm/
 ├── cli/        # Typer CLI entry-points
 │   ├── base/   # Shared subprocess / kubectl / docker / poll / template helpers
-│   └── subcommands/   # k8s, db, mcp, container
-├── core/       # Settings, observability, HTTP base, storage / cache / clients
-├── db/         # Tortoise ORM models and helpers
-└── mcp/        # FastMCP server and tools
+│   └── subcommands/   # k8s, db, container
+├── core/       # Settings, HTTP base, storage / cache / clients
+└── db/         # Tortoise ORM models and helpers
 k8s/            # Kubernetes manifests (applied by `hallm k8s setup`)
-network/        # Caddyfile + dnsmasq config + caddy systemd unit template
+network/        # dnsmasq config for *.hallm.local resolution
 tests/          # Pytest test suite (mirrors hallm/ layout)
 docker/         # Dockerfiles
 scripts/        # One-shot installers (rootless Docker, etc.)

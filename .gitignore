@@ -17,3 +17,5 @@ htmlcov/
 .keyring/
 coverage.xml
 .remember/
+_volume-backups/
+.serena/

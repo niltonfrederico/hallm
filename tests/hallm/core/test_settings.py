@@ -94,9 +94,6 @@ class TestDefaults:
     def test_debug_default_is_false(self) -> None:
         assert Settings.debug is False
 
-    def test_otel_service_name_default(self) -> None:
-        assert Settings.otel_service_name == "hallm"
-
     def test_gotify_url_default(self) -> None:
         assert Settings.gotify_url == "https://gotify.hallm.local"
 

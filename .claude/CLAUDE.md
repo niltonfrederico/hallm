@@ -2,7 +2,7 @@
 
 ## Project overview
 
-`hallm` is a Python 3.14 project that exposes an LLM-powered assistant as an MCP server (via FastMCP) with a Typer CLI, backed by Postgres 17 for persistence.
+`hallm` is a Python 3.14 Typer CLI that manages a local k3d cluster and its services, backed by Postgres 17 for persistence.
 
 ## Tech stack quick-reference
 
@@ -12,7 +12,6 @@
 | Package manager | uv | `uv add`, `uv sync`, never pip directly |
 | Type checker | ty | Run via `uv run ty check` |
 | Linter / formatter | Ruff | Run via `uv run ruff check --fix && uv run ruff format` |
-| MCP server | FastMCP | Tools and resources live in `hallm/mcp/` |
 | CLI | Typer | Commands live in `hallm/cli/` |
 | Config | Environs | All settings come from `Settings` in `core/settings.py` |
 | ORM | Tortoise ORM + asyncpg | Models in `db/models.py`; init via `db.init_db()` |
@@ -43,12 +42,10 @@ hallm/
 │   └── subcommands/
 │       ├── k8s.py               # cluster lifecycle + cluster operations
 │       ├── db.py                # bootstrap (per-service DB creation)
-│       ├── mcp.py               # serve
-│       ├── network.py           # apply, health (Caddy + dnsmasq)
+│       ├── network.py           # apply, health (dnsmasq)
 │       └── container.py         # publish
 ├── core/
 │   ├── settings.py              # Class-level env reads + cached_property DB
-│   ├── observability.py         # Glitchtip + SigNoz/OTEL bootstrap (flag-gated)
 │   ├── _http.py                 # BaseAsyncHTTPClient (paperless + gotify)
 │   ├── gotify.py / paperless.py # gotify gated by GOTIFY_ENABLED (default True)
 │   ├── cache.py                 # Async Valkey/Redis wrapper
@@ -61,9 +58,8 @@ hallm/
 │   │   ├── mixins.py            # TimestampMixin
 │   │   └── fields.py            # SlugField, URLField, FileField, ImageField, StoredFile
 │   └── migrations/
-└── mcp/                         # FastMCP server
 k8s/                             # Kubernetes manifests applied by `hallm k8s setup`
-network/                         # Caddyfile + dnsmasq + caddy unit template (`hallm network apply`)
+network/                         # dnsmasq config for *.hallm.local (`hallm network apply`)
 tests/                           # Mirror of hallm/ layout
 ```
 
@@ -73,8 +69,8 @@ tests/                           # Mirror of hallm/ layout
 
 - **Class-level** attributes are evaluated at module import. All env-driven
   values with sensible defaults live here (RustFS, Valkey, Paperless,
-  OTEL, Spotify, `DOCKER_CONTEXT`, `environment`, `debug`).
-- **Feature flags** (`signoz_enabled`, `glitchtip_enabled`) default to `False`;
+  Spotify, `DOCKER_CONTEXT`, `environment`, `debug`).
+- **Feature flags** (`signoz_enabled`) default to `False`;
   `gotify_enabled` defaults to `True`. Archived manifests live under
   `k8s/archived/`; set the matching env var and restore the manifest to
   re-enable an integration (or flip the flag off without removing the
@@ -149,7 +145,6 @@ uv tool install --editable .           # install hallm globally (first time only
 uv run hallm                           # show CLI help (from inside the repo)
 hallm                                  # show CLI help (anywhere, after the global install)
 hallm install                          # re-run uv tool install --editable + record ~/.hallm/repo
-uv run hallm mcp serve                 # start the MCP server
 docker compose --profile test run --rm tests              # run unit tests (≥ 98 % branch coverage)
 docker compose --profile test run --rm integration-tests  # run integration tests
 docker compose --profile lint run --rm lint               # run linters and formatters
@@ -171,7 +166,7 @@ commands locate the active checkout in this order:
    `hallm install`).
 
 Commands that work from any cwd, with or without a discoverable repo:
-`mcp serve`, `k8s preflight`, `k8s nuke`, `k8s get-cert`, `secrets sync`,
+`k8s preflight`, `k8s nuke`, `k8s get-cert`, `secrets sync`,
 and `container build/deploy/remove` when a manifest/Dockerfile **path** is
 passed instead of a name. `k8s healthcheck` skips smoke tests with a notice
 when no checkout is found.
@@ -270,35 +265,28 @@ Annotate any Ingress with `cert-manager.io/cluster-issuer: cerberus-ca` to get a
 
 ## Local network (network/ + `hallm network`)
 
-`network/` holds the host-level config that fronts the OpenClaw gateway and
-any future `*.hallm.local` services that don't live in the k3d cluster.
+`network/` holds the host-level dnsmasq config that resolves `*.hallm.local`
+to the k3d cluster's Traefik.
 
 | Concern | Detail |
 | --- | --- |
-| Reverse proxy | Caddy bound to `127.0.0.2:80` (kept off `127.0.0.1` to avoid the cluster's Traefik) |
-| DNS | dnsmasq maps `openclaw.hallm.local` → `127.0.0.2`, `hallm.local` → `127.0.0.1` |
-| Backend | OpenClaw gateway on `127.0.0.1:18789` (source: `~/.openclaw/openclaw.json` → `gateway.port`) |
-| Caddy runtime | System systemd unit `hallm-caddy.service`, root-owned (so `:80` works without caps) |
+| DNS | dnsmasq maps `hallm.local` → `127.0.0.1` (the cluster's Traefik) |
+| Resolver wiring | `apply` points NetworkManager's active Ethernet/Wi-Fi connection at `127.0.0.1` first |
 | Install mode | `install -m 0644` (copy, not symlink) — repo edits require re-running `apply` |
 
 ### Network CLI commands
 
 ```bash
-uv run hallm network apply     # install configs to /etc + (re)load caddy & dnsmasq (sudo)
-uv run hallm network health    # binaries, services, drift, DNS, TCP reachability
+uv run hallm network apply     # install dnsmasq config to /etc + reload dnsmasq (sudo)
+uv run hallm network health    # binaries, service, drift, DNS resolution
 ```
 
 ### network/ file layout
 
 ```text
 network/
-├── Caddyfile                   # → /etc/caddy/Caddyfile
-├── dnsmasq.d                   # → /etc/dnsmasq.d/hallm.conf
-└── hallm-caddy.service.tpl     # rendered with ##CADDY_BIN##, → /etc/systemd/system/hallm-caddy.service
+└── dnsmasq.d                   # → /etc/dnsmasq.d/hallm.conf
 ```
-
-If you change the OpenClaw gateway port, update **both** `network/Caddyfile`
-and `~/.openclaw/openclaw.json`, then re-run `hallm network apply`.
 
 ## Adding a new model
 
@@ -307,17 +295,11 @@ and `~/.openclaw/openclaw.json`, then re-run `hallm network apply`.
 3. Use `SlugField(from_field="name")` when a slug should mirror another field.
 4. Run `uv run tortoise makemigrations` then `uv run tortoise migrate`.
 
-## Adding a new MCP tool
-
-1. Add a function decorated with `@mcp.tool()` inside `hallm/mcp/server.py` (or a submodule imported there).
-2. All parameters must be typed and documented via docstring.
-3. Add a test in `tests/hallm/mcp/`.
-
 ## Adding a new CLI command
 
 1. Add a `@app.command()` function in an existing subcommand file or create a new one and register it via `app.add_typer(...)` in `hallm/cli/main.py`.
 2. Set `no_args_is_help=True` on the new sub-Typer so `hallm <namespace>` with no command shows help.
-3. Keep business logic out of the CLI layer — delegate to `core/` or `mcp/`.
+3. Keep business logic out of the CLI layer — delegate to `core/`.
 4. Reuse helpers from `hallm/cli/base/` instead of calling `subprocess` directly.
 
 ## Test coverage
