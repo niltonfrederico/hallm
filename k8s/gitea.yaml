@@ -1,14 +1,35 @@
 apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: gitea-data
+  labels:
+    app: gitea-data
+spec:
+  capacity:
+    storage: 30Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hallm-static
+  hostPath:
+    path: /var/lib/rancher/k3s/storage/static/gitea-data
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: default
+    name: gitea-data
+
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: gitea-data
   namespace: default
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: local-path
+  storageClassName: hallm-static
   resources:
     requests:
       storage: 30Gi
+  volumeName: gitea-data
 
 ---
 apiVersion: apps/v1

@@ -39,12 +39,6 @@ uv sync
 
 # Install pre-commit hooks
 uv run pre-commit install
-
-# Start Postgres
-docker compose up db -d
-
-# Run migrations
-uv run tortoise migrate
 ```
 
 ### Commit tooling
@@ -210,7 +204,6 @@ hallm/
 │   ├── base/   # Shared subprocess / kubectl / docker / poll / template helpers
 │   └── subcommands/   # cluster, db, secrets, container, network, headlamp
 ├── core/       # Settings, HTTP base, storage / cache / clients
-└── db/         # Tortoise ORM models and helpers
 k8s/            # Kubernetes manifests (applied by `hallm cluster setup`)
 network/        # dnsmasq config for *.hallm.local resolution
 tests/          # Pytest test suite (mirrors hallm/ layout)

@@ -2,7 +2,10 @@
 
 ## Project overview
 
-`hallm` is a Python 3.14 Typer CLI that manages a local k3d cluster and its services, backed by Postgres 17 for persistence.
+`hallm` is a Python 3.14 Typer CLI that manages a local k3d cluster and its
+services (Postgres 17, Gitea, Paperless, RustFS, ...). The CLI itself is
+stateless — it orchestrates the cluster via `kubectl`/`docker`/`k3d`; service
+data lives in the cluster's PersistentVolumes.
 
 ## Tech stack quick-reference
 
@@ -14,7 +17,6 @@
 | Linter / formatter | Ruff | Run via `uv run ruff check --fix && uv run ruff format` |
 | CLI | Typer | Commands live in `hallm/cli/` |
 | Config | Environs | All settings come from `Settings` in `core/settings.py` |
-| ORM | Tortoise ORM + asyncpg | Models in `db/models.py`; init via `db.init_db()` |
 | Tests | Pytest + pytest-cov | `asyncio_mode = "auto"`; coverage floor is **98 %** |
 | Debugger | ipdb | `import ipdb; ipdb.set_trace()` — never commit breakpoints |
 
@@ -48,19 +50,12 @@ hallm/
 │       ├── signoz.py            # bootstrap (gated by SIGNOZ_ENABLED)
 │       └── container.py         # publish, deploy, remove
 ├── core/
-│   ├── settings.py              # Class-level env reads + cached_property DB
+│   ├── settings.py              # Class-level env reads + cached_property repo paths
 │   ├── _http.py                 # BaseAsyncHTTPClient (paperless + gotify)
 │   ├── gotify.py / paperless.py # gotify gated by GOTIFY_ENABLED (default True)
 │   ├── cache.py                 # Async Valkey/Redis wrapper
 │   ├── storage.py               # Async S3 (RustFS) helpers
 │   └── enums.py
-├── db/
-│   ├── __init__.py              # init_db()/close_db(), TORTOISE_ORM
-│   ├── models.py
-│   ├── base/
-│   │   ├── mixins.py            # TimestampMixin
-│   │   └── fields.py            # SlugField, URLField, FileField, ImageField, StoredFile
-│   └── migrations/
 k8s/                             # Kubernetes manifests applied by `hallm cluster setup`
 network/                         # dnsmasq config for *.hallm.local (`hallm network apply`)
 tests/                           # Mirror of hallm/ layout
@@ -78,49 +73,41 @@ tests/                           # Mirror of hallm/ layout
   `k8s/archived/`; set the matching env var and restore the manifest to
   re-enable an integration (or flip the flag off without removing the
   manifest to keep the service deployed but the client wiring dormant).
-- **`@cached_property`** is used for `database`, `database_url`, and
-  `tortoise_database_url`. These have no defaults, so each `Settings()`
-  instance reads them on first access — letting tests monkeypatch
-  `DATABASE_*` env vars per-test.
-- Path constants (`ROOT_PATH`, `K8S_PATH`, `SECRETS_PATH`, ...) are
-  class-level and derived from `__file__`.
+- **`@cached_property`** is used for the workspace-bound paths
+  (`repo_root`, `k8s_path`, `docker_path`, `network_path`). They resolve
+  lazily via `hallm.core.workspace`, so importing settings never requires a
+  checkout — only accessing those attributes does.
+- Path constants (`PROJECT_PATH`, `SECRETS_PATH`, ...) are class-level and
+  derived from `__file__`.
 
 Always use the module-level `settings` singleton in production code:
 `from hallm.core.settings import settings`.
 
-## Database
+## Persistent storage (PVs)
 
-### Base classes and custom fields
+Service state lives in the cluster's PersistentVolumes. There are two
+storage classes, chosen by **whether the data must survive a cluster
+recreate**:
 
-All models inherit from **`TimestampMixin`** (`db/base/mixins.py`):
+- **`hallm-static`** — static PV + PVC pair per stateful service, declared
+  in the service's own manifest. The PV pins a fixed `hostPath` under
+  `/var/lib/rancher/k3s/storage/static/<pvc-name>` (which is the SSD bind
+  mount, `/mnt/hallm/static/<pvc-name>` on the host) with
+  `persistentVolumeReclaimPolicy: Retain` and an explicit `claimRef`. Because
+  the path is fixed (not a per-PVC UUID), the data **survives `nuke` +
+  `setup`** — the re-applied PV rebinds to the same dir. Use this for any
+  data you'd hate to lose (postgres, gitea, paperless, rustfs, sure, gotify,
+  jupyter, leantime, immich-postgres).
+- **`local-path`** — the dynamic provisioner, for **ephemeral** data only.
+  A recreate orphans the old per-UUID dir and provisions a fresh empty one.
+  Reserved for caches and disposable state: `valkey-data`,
+  `jellyfin-cache`, `immich-model-cache`.
 
-| Field | Type | Notes |
-| --- | --- | --- |
-| `id` | `UUIDField` | Primary key, auto-generated |
-| `created_at` | `DatetimeField` | `auto_now_add=True` |
-| `updated_at` | `DatetimeField` | `auto_now=True` |
+`shared-volumes` (RWX, on the `powah` partition) and `config-volumes` are
+their own static classes — see `k8s/shared-volumes.yaml`.
 
-`db/base/fields.py` provides:
-
-- **`SlugField`** — `CharField` (max 60, nullable) that auto-slugifies via
-  `python-slugify`. Pass `from_field="<other_field>"` to derive the slug
-  from another field.
-- **`URLField`** — `CharField` (max 2000) with `validators.url` validation.
-- **`StoredFile`** + **`FileField`** — store an S3 key, expose async
-  `url()`/`read()`/`delete()` helpers backed by `hallm.core.storage`.
-- **`ImageField`** — `FileField` subclass that rejects non-image MIME types.
-
-### Models
-
-Currently: `FeatureFlag`, `Library`, `Content`, `Tag`. See `db/models.py`.
-
-### DB initialisation
-
-`db/__init__.py` exposes:
-
-- `init_db()` — calls `Tortoise.init(config=TORTOISE_ORM)`.
-- `close_db()` — calls `Tortoise.close_connections()`.
-- `TORTOISE_ORM` — dict config used by both runtime init and `[tool.tortoise]`.
+When adding a stateful service, follow the static PV+PVC shape from
+`k8s/postgres.yaml`; never use `local-path` for data that must persist.
 
 ## CLI helpers
 
@@ -151,8 +138,6 @@ hallm install                          # re-run uv tool install --editable + rec
 docker compose --profile test run --rm tests              # run unit tests (≥ 98 % branch coverage)
 docker compose --profile test run --rm integration-tests  # run integration tests
 docker compose --profile lint run --rm lint               # run linters and formatters
-uv run tortoise makemigrations   # generate new migration
-uv run tortoise migrate          # apply pending migrations
 docker compose up postgres -d    # start Postgres only
 docker compose up --build        # full stack
 ```
@@ -296,13 +281,6 @@ uv run hallm network health    # binaries, service, drift, DNS resolution
 network/
 └── dnsmasq.d                   # → /etc/dnsmasq.d/hallm.conf
 ```
-
-## Adding a new model
-
-1. Inherit from `TimestampMixin` (not `Model` directly).
-2. Define fields in `hallm/db/models.py`.
-3. Use `SlugField(from_field="name")` when a slug should mirror another field.
-4. Run `uv run tortoise makemigrations` then `uv run tortoise migrate`.
 
 ## Adding a new CLI command
 

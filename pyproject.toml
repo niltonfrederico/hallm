@@ -6,16 +6,12 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "aioboto3>=13",
-    "asyncpg>=0.30",
     "environs>=14.0",
     "httpx>=0.28.1",
     "ipdb>=0.13",
     "python-dotenv>=1.2.2",
     "redis>=5",
-    "slugify>=0.0.1",
-    "tortoise-orm[asyncpg]>=0.22",
     "typer>=0.25.1",
-    "validators>=0.35.0",
 ]
 
 [project.scripts]
@@ -96,9 +92,3 @@ fail_under = 98
 skip_covered = false
 precision = 2
 show_missing = true
-
-# ---------------------------------------------------------------------------
-# Tortoise ORM / migrations
-# ---------------------------------------------------------------------------
-[tool.tortoise]
-tortoise_orm = "hallm.db.TORTOISE_ORM"

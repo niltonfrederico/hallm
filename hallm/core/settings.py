@@ -118,39 +118,6 @@ class Settings:
     spotify_client_id: str = env.str("SPOTIFY_CLIENT_ID", "")
     spotify_client_secret: str = env.str("SPOTIFY_CLIENT_SECRET", "")
 
-    # ------------------------------------------------------------------
-    # Database (no defaults — read lazily so tests can monkeypatch env)
-    # ------------------------------------------------------------------
-    @cached_property
-    def database(self) -> dict[str, str | int]:
-        return {
-            "driver": env.str("DATABASE_DRIVER"),
-            "user": env.str("POSTGRES_USER"),
-            "password": env.str("POSTGRES_PASSWORD"),
-            "name": env.str("POSTGRES_DB"),
-            "host": env.str("DATABASE_HOST"),
-            "port": env.int("POSTGRES_PORT", 5432),
-        }
-
-    def _build_database_url(self, driver: str | None = None) -> str:
-        db = self.database
-        db_driver = str(db["driver"])
-        if driver:
-            db_driver += f"+{driver}"
-
-        host = db["host"]
-        return f"{db_driver}://{db['user']}:{db['password']}@{host}:{db['port']}/{db['name']}"
-
-    @cached_property
-    def database_url(self) -> str:
-        """Construct the database URL from the individual components."""
-        return self._build_database_url()
-
-    @cached_property
-    def tortoise_database_url(self) -> str:
-        """Construct the database URL for Tortoise ORM, which requires a driver prefix."""
-        return self._build_database_url("asyncpg")
-
 
 class ClusterSettings:
     """Constants for the hallm k3d cluster lifecycle.

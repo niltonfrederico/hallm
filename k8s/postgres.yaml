@@ -1,14 +1,35 @@
 apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-data
+  labels:
+    app: postgres
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: hallm-static
+  hostPath:
+    path: /var/lib/rancher/k3s/storage/static/postgres-data
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: default
+    name: postgres-data
+
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-data
   namespace: default
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: local-path
+  storageClassName: hallm-static
   resources:
     requests:
       storage: 10Gi
+  volumeName: postgres-data
 
 ---
 apiVersion: apps/v1
