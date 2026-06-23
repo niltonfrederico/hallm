@@ -30,7 +30,7 @@ class TestPluginRoot:
 
 
 class TestBuildPlugin:
-    def test_invokes_npm_install_then_build(self, plugin_root: Path) -> None:
+    def test_builds_in_pinned_node_container(self, plugin_root: Path) -> None:
         calls: list[list[str]] = []
 
         def _capture(cmd: list[str], **_kw: object) -> object:
@@ -40,10 +40,12 @@ class TestBuildPlugin:
         with patch("subprocess.run", side_effect=_capture):
             headlamp._build_plugin()
 
-        assert calls[0][:2] == ["npm", "install"]
-        assert calls[1][:3] == ["npm", "run", "build"]
-        for cmd in calls:
-            assert str(plugin_root) in cmd
+        assert len(calls) == 1
+        cmd = calls[0]
+        assert cmd[:3] == ["docker", "run", "--rm"]
+        assert headlamp._BUILD_IMAGE in cmd
+        assert f"{plugin_root}:/work" in cmd
+        assert cmd[-1] == "npm install && npm run build"
 
     def test_missing_plugin_root_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

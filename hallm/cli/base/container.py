@@ -26,6 +26,12 @@ def build_and_push(dockerfile: Path, image_name: str, context: Path) -> None:
     manifest.v2+json`` rather than an OCI image index — unregistry's containerd
     backend resolves the former cleanly but loses the tag binding for the
     latter, which surfaces as ``ErrImagePull: not found`` on the pulling node.
+
+    ``--network=host`` is required because the host runs dnsmasq on 127.0.0.1
+    (see ``hallm network apply``). BuildKit strips loopback nameservers from the
+    build's resolv.conf and — unlike ``docker run`` — does not fall back to a
+    public resolver, leaving RUN steps with no DNS. Sharing the host netns lets
+    the build reach dnsmasq directly so ``apt``/``curl`` resolve.
     """
     timestamp = datetime.now(tz=UTC).strftime("%Y%m%d%H%M%S")
     base_tag = f"{REGISTRY}/{ORG}/{image_name}"
@@ -38,6 +44,7 @@ def build_and_push(dockerfile: Path, image_name: str, context: Path) -> None:
             "docker",
             "buildx",
             "build",
+            "--network=host",
             "--platform",
             "linux/amd64",
             "--provenance=false",

@@ -50,6 +50,7 @@ class TestPublish:
         assert mock.call_count == 1
         cmd = mock.call_args_list[0][0][0]
         assert cmd[:3] == ["docker", "buildx", "build"]
+        assert "--network=host" in cmd
         assert "--output" in cmd and "type=registry" in cmd
         assert "--provenance=false" in cmd and "--sbom=false" in cmd
 

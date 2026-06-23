@@ -12,6 +12,7 @@ ConfigMap at ``/headlamp-plugins/hallm-links`` to satisfy that layout.
 
 import typer
 
+from hallm.cli.base import docker as _docker
 from hallm.cli.base import kubectl
 from hallm.cli.base.shell import fail as _fail
 from hallm.cli.base.shell import run as _run
@@ -23,6 +24,11 @@ app = typer.Typer(help="Headlamp plugin operations.", no_args_is_help=True)
 _CONFIGMAP = "headlamp-plugin-hallm-links"
 _NAMESPACE = "kube-system"
 _PLUGIN_DIR_NAME = "hallm-links"
+# Pinned Node LTS image the plugin is built in. @kinvolk/headlamp-plugin's
+# toolchain breaks on bleeding-edge Node (its bundled yargs is loaded as ESM
+# and calls require()), so we never build against whatever `node` the host
+# happens to ship.
+_BUILD_IMAGE = "node:22-bookworm-slim"
 
 
 def _plugin_root():
@@ -34,16 +40,28 @@ def _build_plugin() -> None:
     if not plugin_root.exists():
         _fail(f"Plugin source not found at {plugin_root}")
 
-    typer.echo(f"==> npm install in {plugin_root}")
-    _run_or_fail(
-        ["npm", "install", "--prefix", str(plugin_root)],
-        "npm install failed",
-    )
-
-    typer.echo("==> npm run build")
-    _run_or_fail(
-        ["npm", "run", "build", "--prefix", str(plugin_root)],
-        "npm run build failed",
+    # Build in a pinned Node container instead of on the host. Rootless Docker
+    # maps the container's root back to the invoking user, so node_modules/ and
+    # dist/ land on the host owned correctly. The container gets a working DNS
+    # resolver (docker run falls back to public nameservers), so `npm install`
+    # reaches the registry even though the host points at dnsmasq on loopback.
+    typer.echo(f"==> Building hallm-links plugin in {_BUILD_IMAGE}")
+    _docker.run_or_fail(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--volume",
+            f"{plugin_root}:/work",
+            "--workdir",
+            "/work",
+            _BUILD_IMAGE,
+            "sh",
+            "-c",
+            "npm install && npm run build",
+        ],
+        "headlamp plugin build failed",
+        stream=True,
     )
 
 
