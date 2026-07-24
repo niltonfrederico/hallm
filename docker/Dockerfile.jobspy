@@ -1,0 +1,93 @@
+# jobspy-mcp-server as an in-cluster SSE endpoint.
+#
+# Upstream (borgius/jobspy-mcp-server) is a Node MCP server that, on every
+# search, shells out to `${DOCKER_CMD:-docker} run --rm jobspy <args>` — it
+# expects a sibling `jobspy` Docker image whose ENTRYPOINT is
+# `python main.py`. Running a real `docker run` from inside a pod means
+# docker-in-docker, which contradicts the cluster's rootless design.
+#
+# Instead of patching the scraper invocation, we hijack the documented
+# `DOCKER_CMD` hook: it points at a shim that drops the `run --rm jobspy`
+# prefix and execs the Python scraper directly, with `python-jobspy` baked
+# into this same image. Zero DinD.
+#
+# Two source patches are unavoidable:
+#
+# 1. docker/jobspy-prompts.patch — upstream's package-lock pins
+#    @modelcontextprotocol/sdk 1.27.1, but its three MCP prompts still pass a
+#    wrapped `z.object({...})` where the modern SDK expects a raw ZodRawShape,
+#    which crashes registration at boot (isZ4Schema reads `._zod` on null).
+#    The patch unwraps those three prompts to raw shapes.
+#
+# 2. docker/jobspy-sse-per-session.patch — upstream builds one module-level
+#    McpServer and calls `server.connect(transport)` on every SSE client. A
+#    Protocol binds to exactly one transport, so the second connection throws
+#    "Already connected to a transport" from inside an async Express handler,
+#    which Express 4 does not catch — the rejection goes unhandled and Node 22
+#    kills the process. In practice the pod survived exactly one client and
+#    died on every reconnect (14 restarts over 16 days). The patch moves to one
+#    server per session, closes it on disconnect, and routes progress
+#    notifications through the originating session's server instead of a shared
+#    one. It also fixes shutdown(), which called the non-existent
+#    server.disconnect().
+#
+# Pinned to the known-good commit currently vendored under
+# ~/.local/share/mcp-servers/jobspy-mcp-server (origin borgius, HEAD 5f93ffe).
+FROM node:22-slim
+
+ARG JOBSPY_REF=5f93ffe96091eb747c6ee5ffbbd076e3512de705
+
+# Node runs the MCP server; Python + python-jobspy back the shim; git clones
+# the source at the pinned ref.
+RUN set -ex; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        git ca-certificates python3 python3-pip; \
+    rm -rf /var/lib/apt/lists/*
+
+# Both patches are applied against the pinned ref; `git apply` fails loud if
+# upstream ever moves out from under them. They touch disjoint files
+# (src/prompts/* vs src/index.js + src/sseManager.js), so the order is not
+# load-bearing — but keep it stable so failures stay easy to read.
+COPY docker/jobspy-prompts.patch /tmp/jobspy-prompts.patch
+COPY docker/jobspy-sse-per-session.patch /tmp/jobspy-sse-per-session.patch
+WORKDIR /app
+RUN set -ex; \
+    git clone https://github.com/borgius/jobspy-mcp-server.git .; \
+    git checkout "${JOBSPY_REF}"; \
+    git apply --verbose /tmp/jobspy-prompts.patch; \
+    git apply --verbose /tmp/jobspy-sse-per-session.patch; \
+    rm -rf .git /tmp/jobspy-prompts.patch /tmp/jobspy-sse-per-session.patch
+
+# Node deps (package-lock.json is present upstream, so `npm ci` is reproducible).
+RUN npm ci --omit=dev
+
+# python-jobspy for the shim. Debian marks the base env externally-managed
+# (PEP 668); --break-system-packages is the container-appropriate escape.
+RUN pip3 install --no-cache-dir --break-system-packages -r jobspy/requirements.txt
+
+# Isolate the scraper so its parent dir contains no `jobspy/` package: main.py
+# does `from jobspy import scrape_jobs`, which must resolve to the pip package,
+# not the local source tree. Invoking it by full path makes sys.path[0] the
+# isolated dir, keeping the import clean regardless of the caller's cwd.
+RUN mkdir -p /opt/jobspy && cp jobspy/main.py /opt/jobspy/main.py
+
+# DOCKER_CMD shim. The server invokes: `<shim> run --rm jobspy <args...>`.
+# Drop the three fixed positionals and hand the rest to the scraper, whose
+# stdout JSON is what the Node side parses.
+RUN printf '#!/bin/sh\nshift 3\nexec python3 /opt/jobspy/main.py "$@"\n' \
+        > /usr/local/bin/jobspy-shim; \
+    chmod +x /usr/local/bin/jobspy-shim
+
+ENV DOCKER_CMD=/usr/local/bin/jobspy-shim \
+    ENABLE_SSE=1 \
+    JOBSPY_HOST=0.0.0.0 \
+    JOBSPY_PORT=9423
+
+# Drop to the unprivileged `node` user (uid 1000, ships with the base image).
+# All artifacts (/app, /opt/jobspy, site-packages, the shim) are root-owned but
+# world-readable, and the server writes nothing to disk — logs go to stdout.
+USER node
+
+EXPOSE 9423
+CMD ["node", "src/index.js"]

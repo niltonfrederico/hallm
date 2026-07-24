@@ -1,0 +1,110 @@
+# jobspy-mcp-server — job-search MCP exposed in-cluster over SSE.
+#
+# Stateless by design: it scrapes job boards on demand and persists nothing,
+# so there is no PersistentVolume here. The image bakes the DOCKER_CMD shim
+# that replaces the upstream `docker run --rm jobspy` call with an in-image
+# Python invocation (see docker/Dockerfile.jobspy).
+#
+# Consumed as an MCP endpoint at https://jobspy.hallm.local/sse — not a
+# browsable UI, hence dashboard=false.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobspy
+  namespace: default
+  labels:
+    app: jobspy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jobspy
+  template:
+    metadata:
+      labels:
+        app: jobspy
+    spec:
+      containers:
+        - name: jobspy
+          image: unregistry.hallm.local/hallm/jobspy:latest
+          env:
+            # Defaults are baked into the image ENV; restated here so the
+            # runtime contract is visible from the manifest alone.
+            - name: ENABLE_SSE
+              value: "1"
+            - name: JOBSPY_HOST
+              value: "0.0.0.0"
+            - name: JOBSPY_PORT
+              value: "9423"
+          ports:
+            - name: http
+              containerPort: 9423
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 128Mi
+            limits:
+              # The scraper subprocess pulls in pandas/numpy; give it headroom
+              # for large result sets without letting it run away.
+              cpu: "1"
+              memory: 768Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9423
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9423
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobspy
+  namespace: default
+  labels:
+    app: jobspy
+spec:
+  selector:
+    app: jobspy
+  ports:
+    - name: http
+      port: 80
+      targetPort: 9423
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jobspy
+  namespace: default
+  labels:
+    app: jobspy
+  annotations:
+    cert-manager.io/cluster-issuer: cerberus-ca
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    hallm.local/dashboard: "false"
+    hallm.local/title: "JobSpy MCP"
+    hallm.local/icon: "jobspy"
+    hallm.local/category: "tools"
+    hallm.local/description: "Job-search MCP server (SSE)"
+spec:
+  tls:
+    - hosts: [jobspy.hallm.local]
+      secretName: jobspy-tls
+  rules:
+    - host: jobspy.hallm.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jobspy
+                port:
+                  number: 80

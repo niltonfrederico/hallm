@@ -1,0 +1,186 @@
+diff --git a/src/index.js b/src/index.js
+index 77095d6..8d0dfb2 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -16,23 +16,33 @@ const PORT = process.env.JOBSPY_PORT || 9423;
+ const HOST = process.env.JOBSPY_HOST || '0.0.0.0';
+ const ENABLE_SSE = !!(process.env.ENABLE_SSE | 0);
+ 
+-// Create the MCP server
+-const server = new McpServer({
+-  name: 'JobSpy MCP Server',
+-  version: '1.0.0',
+-  description:
+-    'A Model Context Protocol server that enables searching for jobs across various platforms',
+-});
+-
+-const sseManager = new SseManager(server);
++// An McpServer wraps a Protocol instance that can only ever be bound to one
++// transport: connecting a second time throws "Already connected to a
++// transport". Since every SSE client needs its own transport, every SSE client
++// needs its own McpServer — hence a factory rather than a module singleton.
++function createMcpServer() {
++  const mcpServer = new McpServer({
++    name: 'JobSpy MCP Server',
++    version: '1.0.0',
++    description:
++      'A Model Context Protocol server that enables searching for jobs across various platforms',
++  });
++
++  searchJobsPrompt(mcpServer);
++  jobRecommendationsPrompt(mcpServer);
++  resumeFeedbackPrompt(mcpServer);
++  searchJobsTool(mcpServer, sseManager);
++
++  return mcpServer;
++}
+ 
+-searchJobsPrompt(server);
+-jobRecommendationsPrompt(server);
+-resumeFeedbackPrompt(server);
+-searchJobsTool(server, sseManager);
++// The manager is shared across connections (it owns the sessionId -> transport
++// map), but it no longer owns a single server: it tracks one per session.
++const sseManager = new SseManager();
+ 
+ // Initialize transports
+ let stdioTransport = null;
++let stdioServer = null;
+ let httpServer = null;
+ 
+ // Start the server with configured transports
+@@ -64,14 +74,38 @@ async function runServer() {
+         // SSE endpoint for client connections
+         app.get('/sse', async (req, res) => {
+           const transport = sseManager.createTransport('/messages', res);
++          const mcpServer = createMcpServer();
++          sseManager.attachServer(transport.sessionId, mcpServer);
+ 
+           res.on('close', () => {
++            // close() releases the Protocol's transport binding. Without it the
++            // instance stays marked as connected and leaks for the process
++            // lifetime, even though the client is long gone.
++            mcpServer.close().catch((error) => {
++              logger.error('Error closing MCP server for session', {
++                sessionId: transport.sessionId,
++                error: error.message,
++              });
++            });
+             sseManager.removeTransport(transport.sessionId);
+             logger.info(`Client disconnected: ${transport.sessionId}`);
+           });
+ 
+-          await server.connect(transport);
+-          logger.info(`New SSE client connected: ${transport.sessionId}`);
++          // Express 4 does not forward rejections from async handlers, so an
++          // unhandled one here becomes an unhandledRejection and kills the
++          // process. One bad connection must not take down every other client.
++          try {
++            await mcpServer.connect(transport);
++            logger.info(`New SSE client connected: ${transport.sessionId}`);
++          } catch (error) {
++            logger.error('Failed to connect SSE client', {
++              sessionId: transport.sessionId,
++              error: error.message,
++              stack: error.stack,
++            });
++            sseManager.removeTransport(transport.sessionId);
++            res.end();
++          }
+         });
+ 
+         // Message handling endpoint
+@@ -111,7 +145,10 @@ async function runServer() {
+       // Set up stdio transport if no SSE
+       try {
+         stdioTransport = new StdioServerTransport();
+-        await server.connect(stdioTransport);
++        // stdio is inherently single-session, so one server instance is both
++        // sufficient and correct here.
++        stdioServer = createMcpServer();
++        await stdioServer.connect(stdioTransport);
+         connectedTransports.push('stdio');
+ 
+         logger.info('Stdio transport connected');
+@@ -146,8 +183,13 @@ async function shutdown() {
+   logger.info('Shutting down JobSpy MCP server...');
+ 
+   try {
+-    // Disconnect all transports gracefully
+-    await server.disconnect();
++    // Disconnect all transports gracefully. McpServer exposes close(), not
++    // disconnect() — the old call always threw straight into the catch below,
++    // so shutdown was never actually graceful.
++    await Promise.allSettled([
++      ...sseManager.getServers().map((mcpServer) => mcpServer.close()),
++      ...(stdioServer ? [stdioServer.close()] : []),
++    ]);
+ 
+     // Close HTTP server if it exists
+     if (httpServer) {
+diff --git a/src/sseManager.js b/src/sseManager.js
+index 54b7118..f81e9f3 100644
+--- a/src/sseManager.js
++++ b/src/sseManager.js
+@@ -12,9 +12,11 @@ class SseManager {
+   transports = {};
+ 
+   /**
+-   * @type McpServer
++   * @type {Object.<string, McpServer>}
++   * One McpServer per session. A Protocol instance binds to exactly one
++   * transport, so servers cannot be shared across connections.
+    */
+-  mcpServer;
++  mcpServers = {};
+ 
+   /**
+    * Storage for progress tokens by sessionId
+@@ -26,8 +28,21 @@ class SseManager {
+    */
+   toolCalls = {};
+ 
+-  constructor(server) {
+-    this.mcpServer = server;
++  /**
++   * Associates a session's McpServer so notifications can be routed back to
++   * the connection that originated the request.
++   * @param {string} sessionId - Session ID
++   * @param {McpServer} mcpServer - The server bound to that session
++   */
++  attachServer(sessionId, mcpServer) {
++    this.mcpServers[sessionId] = mcpServer;
++  }
++
++  /**
++   * @returns {McpServer[]} Every currently attached server (used on shutdown)
++   */
++  getServers() {
++    return Object.values(this.mcpServers);
+   }
+ 
+   /**
+@@ -61,6 +76,8 @@ class SseManager {
+     if (this.transports[sessionId]) {
+       delete this.transports[sessionId];
+       delete this.progressTokens[sessionId];
++      delete this.mcpServers[sessionId];
++      delete this.toolCalls[sessionId];
+       logger.info(`Removed transport for session: ${sessionId}`);
+       return true;
+     }
+@@ -72,9 +89,11 @@ class SseManager {
+    * @param {object} message - Message to broadcast
+    */
+   async notificationProgress(message, sessionId) {
+-    const clients = Object.values(this.transports);
+-    if (clients.length === 0) {return;}
+-    await this.mcpServer.server.notification({
++    // Route to the server owning this session. Broadcasting through a shared
++    // server would emit one session's progress on another session's channel.
++    const mcpServer = this.mcpServers[sessionId];
++    if (!mcpServer || !this.transports[sessionId]) {return;}
++    await mcpServer.server.notification({
+       method: 'notifications/progress',
+       params: {
+         ...message,
