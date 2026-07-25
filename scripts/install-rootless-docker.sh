@@ -5,14 +5,16 @@
 # [skip] / [ok] / [done]. Re-run safely after a partial failure.
 #
 # Run as your normal user. The script invokes sudo only for the system-level
-# steps (package install, sysctl drop-in, systemd drop-in, group membership,
-# storage chown).
+# steps (package install, kernel module load, sysctl drop-in, systemd drop-in,
+# group membership, storage chown).
 
 set -euo pipefail
 
 CONTEXT_NAME="${HALLM_DOCKER_CONTEXT:-hallm}"
 STORAGE_MOUNT_PATH="${HALLM_STORAGE_MOUNT_PATH:-/mnt/hallm}"
 SYSCTL_FILE="/etc/sysctl.d/90-hallm-rootless.conf"
+BR_NETFILTER_MODULES_FILE="/etc/modules-load.d/br_netfilter.conf"
+BR_NETFILTER_SYSCTL_FILE="/etc/sysctl.d/91-hallm-br-netfilter.conf"
 CGROUP_DROPIN_DIR="/etc/systemd/system/user@.service.d"
 CGROUP_DROPIN_FILE="${CGROUP_DROPIN_DIR}/delegate.conf"
 USER_SOCK="unix:///run/user/$(id -u)/docker.sock"
@@ -29,7 +31,7 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # 1. Packages -----------------------------------------------------------------
-step "1/8 Installing packages (docker, docker-rootless-extras, docker-buildx, slirp4netns, fuse-overlayfs, uidmap, dnsmasq)"
+step "1/9 Installing packages (docker, docker-rootless-extras, docker-buildx, slirp4netns, fuse-overlayfs, uidmap, dnsmasq)"
 needed=()
 for pkg in docker docker-rootless-extras docker-buildx slirp4netns fuse-overlayfs shadow dnsmasq; do
     if pacman -Qi "$pkg" >/dev/null 2>&1; then
@@ -50,7 +52,7 @@ if (( ${#needed[@]} > 0 )); then
 fi
 
 # subuid / subgid -------------------------------------------------------------
-step "2/8 Verifying /etc/subuid and /etc/subgid entries"
+step "2/9 Verifying /etc/subuid and /etc/subgid entries"
 if grep -q "^${USER}:" /etc/subuid && grep -q "^${USER}:" /etc/subgid; then
     ok "subuid/subgid already configured for $USER"
 else
@@ -59,7 +61,7 @@ else
 fi
 
 # Rootless dockerd ------------------------------------------------------------
-step "3/8 Installing rootless dockerd (user systemd service)"
+step "3/9 Installing rootless dockerd (user systemd service)"
 if systemctl --user is-enabled docker >/dev/null 2>&1; then
     ok "user docker service already enabled"
 elif command -v dockerd-rootless-setuptool.sh >/dev/null 2>&1; then
@@ -86,7 +88,7 @@ else
 fi
 
 # Privileged ports ------------------------------------------------------------
-step "4/8 Allowing rootless to bind ports >=80 (sysctl)"
+step "4/9 Allowing rootless to bind ports >=80 (sysctl)"
 if [[ -f "$SYSCTL_FILE" ]] && grep -q '^net\.ipv4\.ip_unprivileged_port_start=80$' "$SYSCTL_FILE"; then
     ok "$SYSCTL_FILE already configured"
 else
@@ -102,8 +104,47 @@ else
     warn "ip_unprivileged_port_start=$current_start — sysctl may not have applied; reboot if k3d port binding fails"
 fi
 
+# br_netfilter ----------------------------------------------------------------
+step "5/9 Loading br_netfilter so bridged ClusterIP traffic hits netfilter"
+# k3d is single-node: pod->Service traffic is DNAT'd on the way in (routed L3),
+# but the reply is bridged pod-to-pod on cni0. Without br_netfilter that reply
+# skips conntrack and is never un-DNAT'd, so every ClusterIP (CoreDNS included)
+# times out while pod-to-pod still works. The rootless daemon cannot load kernel
+# modules itself, so load it here and persist it across reboots.
+if lsmod | grep -qw br_netfilter; then
+    ok "br_netfilter already loaded"
+else
+    sudo modprobe br_netfilter
+    done_ "loaded br_netfilter"
+fi
+
+if [[ -f "$BR_NETFILTER_MODULES_FILE" ]] && grep -qx br_netfilter "$BR_NETFILTER_MODULES_FILE"; then
+    ok "$BR_NETFILTER_MODULES_FILE already persists br_netfilter"
+else
+    echo br_netfilter | sudo tee "$BR_NETFILTER_MODULES_FILE" >/dev/null
+    done_ "wrote $BR_NETFILTER_MODULES_FILE (loads br_netfilter on boot)"
+fi
+
+if [[ -f "$BR_NETFILTER_SYSCTL_FILE" ]] && grep -q '^net\.bridge\.bridge-nf-call-iptables=1$' "$BR_NETFILTER_SYSCTL_FILE"; then
+    ok "$BR_NETFILTER_SYSCTL_FILE already configured"
+else
+    sudo tee "$BR_NETFILTER_SYSCTL_FILE" >/dev/null <<'EOF'
+net.bridge.bridge-nf-call-iptables=1
+net.bridge.bridge-nf-call-ip6tables=1
+EOF
+    sudo sysctl --system >/dev/null
+    done_ "wrote $BR_NETFILTER_SYSCTL_FILE and reloaded sysctl"
+fi
+
+bridge_call=$(cat /proc/sys/net/bridge/bridge-nf-call-iptables 2>/dev/null || echo 0)
+if [[ "$bridge_call" == "1" ]]; then
+    ok "bridge-nf-call-iptables=1 (active)"
+else
+    warn "bridge-nf-call-iptables=$bridge_call — bridged ClusterIP NAT will fail; ensure br_netfilter is loaded"
+fi
+
 # cgroup v2 delegation --------------------------------------------------------
-step "5/8 Delegating cpu/cpuset/io to the user systemd slice"
+step "6/9 Delegating cpu/cpuset/io to the user systemd slice"
 if [[ -f "$CGROUP_DROPIN_FILE" ]] && grep -q 'Delegate=cpu cpuset io memory pids' "$CGROUP_DROPIN_FILE"; then
     ok "$CGROUP_DROPIN_FILE already configured"
 else
@@ -126,7 +167,7 @@ if [[ -r "$controllers_file" ]]; then
 fi
 
 # GPU groups ------------------------------------------------------------------
-step "6/8 Adding $USER to render and video groups (GPU passthrough)"
+step "7/9 Adding $USER to render and video groups (GPU passthrough)"
 groups_to_add=()
 for grp in render video; do
     if id -nG "$USER" | tr ' ' '\n' | grep -qx "$grp"; then
@@ -141,7 +182,7 @@ if (( ${#groups_to_add[@]} > 0 )); then
 fi
 
 # Storage mount ownership -----------------------------------------------------
-step "7/8 Ensuring $STORAGE_MOUNT_PATH is owned by $USER"
+step "8/9 Ensuring $STORAGE_MOUNT_PATH is owned by $USER"
 if [[ ! -d "$STORAGE_MOUNT_PATH" ]]; then
     skip "$STORAGE_MOUNT_PATH does not exist yet — 'hallm cluster setup' will mount it (re-run this script after first setup)"
 elif [[ "$(stat -c '%u' "$STORAGE_MOUNT_PATH")" == "$(id -u)" ]]; then
@@ -152,7 +193,7 @@ else
 fi
 
 # Docker context --------------------------------------------------------------
-step "8/8 Creating Docker context '$CONTEXT_NAME' pointed at the rootless socket"
+step "9/9 Creating Docker context '$CONTEXT_NAME' pointed at the rootless socket"
 if docker context inspect "$CONTEXT_NAME" >/dev/null 2>&1; then
     ok "context '$CONTEXT_NAME' already exists"
 else

@@ -31,6 +31,41 @@
 #    one. It also fixes shutdown(), which called the non-existent
 #    server.disconnect().
 #
+# 3. docker/jobspy-glassdoor.patch — unlike the two above, this one patches the
+#    *pip package* (python-jobspy in site-packages), not the cloned Node repo,
+#    so it is applied after pip install rather than via the clone's work tree.
+#    Without it the Glassdoor scraper returns 0 jobs for every query, logging
+#    "response status code 400 / location not parsed". Three independent root
+#    causes, all measured against 1.1.82:
+#
+#      a. Double slash. Country.get_glassdoor_url() already returns a trailing
+#         slash ("https://www.glassdoor.com.br/"), but the scraper builds
+#         f"{base_url}/findPopularLocationAjax.htm" and f"{base_url}/graph".
+#         The resulting "//" path 400s; the single-slash form returns 200. This
+#         is the whole of "location not parsed". Fix: rstrip("/") the base_url
+#         once, and restore the slash on the two call sites that relied on it
+#         (job_url, company_url).
+#      b. Unencoded location. term={location} is interpolated raw, so any
+#         location containing a comma or space ("New York, NY", "São Paulo")
+#         400s. Fix: urllib.parse.quote.
+#      c. CSRF token never obtained. jobspy's session does not follow redirects
+#         by default, and the token page answers 308 — so the regex runs against
+#         a 10-byte body, finds nothing, and the scraper silently falls back to
+#         the stale hardcoded token. Fix: allow_redirects=True.
+#
+#    Also folds in upstream PR #347 (speedyapply/JobSpy, open since 2026-03-19):
+#    fetch the token from the homepage instead of the now-404
+#    /Job/computer-science-jobs.htm, and stop treating non-fatal GraphQL errors
+#    on peripheral fields (jobsPageSeoData) as fatal, which was discarding all
+#    30 results per page. PR #347 alone does NOT fix this — verified: with only
+#    #347 applied, Brazil still returns 0 jobs. Causes (a)-(c) are unreported
+#    upstream as of 2026-07-23.
+#
+#    Verified end-to-end against live Glassdoor on python-jobspy 1.1.82:
+#      before -> 0 jobs for every location
+#      after  -> 5/5 jobs for "Brazil", "São Paulo", "Sao Paulo", "Remote",
+#                and "New York, NY"
+#
 # Pinned to the known-good commit currently vendored under
 # ~/.local/share/mcp-servers/jobspy-mcp-server (origin borgius, HEAD 5f93ffe).
 FROM node:22-slim
@@ -64,7 +99,27 @@ RUN npm ci --omit=dev
 
 # python-jobspy for the shim. Debian marks the base env externally-managed
 # (PEP 668); --break-system-packages is the container-appropriate escape.
-RUN pip3 install --no-cache-dir --break-system-packages -r jobspy/requirements.txt
+#
+# The version is PINNED rather than taken from jobspy/requirements.txt (which
+# says ">=1.1.80"): jobspy-glassdoor.patch below is cut against 1.1.82's exact
+# context lines, and an unpinned floor would let a future release drift out
+# from under it. Bumping this pin means re-cutting that patch.
+ARG PYTHON_JOBSPY_VERSION=1.1.82
+RUN pip3 install --no-cache-dir --break-system-packages \
+        "python-jobspy==${PYTHON_JOBSPY_VERSION}"
+
+# Glassdoor fixes (see header note 3). Applied against site-packages, not the
+# clone, so it runs here rather than in the git-apply block above. `git apply`
+# works fine outside a work tree; --verbose keeps a failure legible, and the
+# non-zero exit fails the build loudly if the pin ever moves without the patch
+# being re-cut.
+COPY docker/jobspy-glassdoor.patch /tmp/jobspy-glassdoor.patch
+RUN set -ex; \
+    PKG_ROOT="$(python3 -c 'import jobspy, os; print(os.path.dirname(os.path.dirname(jobspy.__file__)))')"; \
+    cd "${PKG_ROOT}"; \
+    git apply --verbose -p1 /tmp/jobspy-glassdoor.patch; \
+    python3 -c "import jobspy.glassdoor"; \
+    rm -f /tmp/jobspy-glassdoor.patch
 
 # Isolate the scraper so its parent dir contains no `jobspy/` package: main.py
 # does `from jobspy import scrape_jobs`, which must resolve to the pip package,

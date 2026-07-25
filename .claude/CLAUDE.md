@@ -300,7 +300,7 @@ must be tested. Targets:
 
 ## Pre-commit hooks
 
-@.claude/rules/pre-commit.md
+@rules/pre-commit.md
 
 ## Pull request checklist
 
