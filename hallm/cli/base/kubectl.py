@@ -142,6 +142,31 @@ def rollout_restart(resource: str, *, namespace: str = "default") -> None:
         fail(f"kubectl rollout restart {resource} failed:\n{result.stderr}")
 
 
+def rollout_restart_by_label(
+    label: str,
+    *,
+    namespace: str = "default",
+    kind: str = "deploy",
+) -> list[str]:
+    """Restart every workload of ``kind`` matching ``label``; return the names restarted.
+
+    Unlike :func:`scale_by_label`, an empty match is not an error: manifests
+    that declare no workload at all (PV/PVC bundles, ClusterIssuers, Namespace
+    files) are legitimate targets, and there is simply nothing to restart.
+    """
+    listing = get_json([kind, "-n", namespace, "-l", label])
+    if not isinstance(listing, dict):
+        return []
+    items = listing.get("items", []) or []
+    names = [name for item in items if (name := item.get("metadata", {}).get("name", ""))]
+    if not names:
+        return []
+    result = run(["kubectl", "rollout", "restart", kind, "-n", namespace, "-l", label])
+    if result.returncode != 0:
+        fail(f"kubectl rollout restart {label!r} failed:\n{result.stderr}")
+    return names
+
+
 def delete_manifest(manifest_path: str | Path, *, namespace: str = "default") -> None:
     """Delete all resources defined in a manifest file."""
     result = run(

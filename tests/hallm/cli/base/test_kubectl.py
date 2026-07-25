@@ -407,6 +407,75 @@ class TestScaleByLabel:
                 kubectl.scale_by_label("app=foo", 0)
 
 
+class TestRolloutRestartByLabel:
+    _LISTING_TWO = '{"items": [{"metadata": {"name": "a"}}, {"metadata": {"name": "b"}}]}'
+
+    def test_returns_restarted_names(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ):
+            assert kubectl.rollout_restart_by_label("app=jobspy") == ["a", "b"]
+
+    def test_issues_rollout_restart_with_selector(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ) as mock:
+            kubectl.rollout_restart_by_label("app=jobspy")
+        restart_cmd = mock.call_args_list[1].args[0]
+        assert restart_cmd == [
+            "kubectl",
+            "rollout",
+            "restart",
+            "deploy",
+            "-n",
+            "default",
+            "-l",
+            "app=jobspy",
+        ]
+
+    def test_custom_namespace_and_kind(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp()],
+        ) as mock:
+            kubectl.rollout_restart_by_label("app=foo", namespace="docs", kind="statefulset")
+        listing_cmd = mock.call_args_list[0].args[0]
+        restart_cmd = mock.call_args_list[1].args[0]
+        assert listing_cmd[:2] == ["kubectl", "get"] and "statefulset" in listing_cmd
+        assert restart_cmd[restart_cmd.index("-n") + 1] == "docs"
+        assert "statefulset" in restart_cmd
+
+    def test_skips_items_with_missing_name(self) -> None:
+        listing = '{"items": [{"metadata": {"name": "a"}}, {"metadata": {}}]}'
+        with patch("subprocess.run", side_effect=[_cp(stdout=listing), _cp()]):
+            assert kubectl.rollout_restart_by_label("app=foo") == ["a"]
+
+    def test_no_matches_returns_empty_without_restarting(self) -> None:
+        # Unlike scale_by_label, an empty match is legitimate: workload-less
+        # manifests (PV/PVC bundles) are valid deploy targets.
+        with patch("subprocess.run", return_value=_cp(stdout='{"items": []}')) as mock:
+            assert kubectl.rollout_restart_by_label("app=ghost") == []
+        assert mock.call_count == 1
+
+    def test_items_key_missing_returns_empty(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout="{}")):
+            assert kubectl.rollout_restart_by_label("app=foo") == []
+
+    def test_unparseable_listing_returns_empty(self) -> None:
+        with patch("subprocess.run", return_value=_cp(stdout="not-json")):
+            assert kubectl.rollout_restart_by_label("app=foo") == []
+
+    def test_fails_when_restart_command_errors(self) -> None:
+        with patch(
+            "subprocess.run",
+            side_effect=[_cp(stdout=self._LISTING_TWO), _cp(returncode=1, stderr="boom")],
+        ):
+            with pytest.raises(typer.Exit):
+                kubectl.rollout_restart_by_label("app=foo")
+
+
 class TestDeleteByLabel:
     def test_success_does_not_raise(self) -> None:
         with patch("subprocess.run", return_value=_cp()):

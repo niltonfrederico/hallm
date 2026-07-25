@@ -141,9 +141,12 @@ class TestDeploy:
         # First call should be docker build
         first_cmd = mock.call_args_list[0][0][0]
         assert first_cmd[0] == "docker" and "build" in first_cmd
-        # Last call should be kubectl apply
-        last_cmd = mock.call_args_list[-1][0][0]
-        assert last_cmd == ["kubectl", "apply", "-f", "-"]
+        # Then the manifest is applied.
+        assert mock.call_args_list[1][0][0] == ["kubectl", "apply", "-f", "-"]
+        # A build implies a rollout: the empty stdout makes the deployment
+        # listing unparseable, so nothing matches and no restart is issued.
+        assert mock.call_args_list[2][0][0][:2] == ["kubectl", "get"]
+        assert "no Deployment labelled app=ollama" in result.output
 
     def test_deploy_with_manifest_path_skips_repo_resolution(
         self, tmp_path: Path, runner: CliRunner
@@ -174,6 +177,88 @@ class TestDeploy:
         apply_cmd = mock.call_args_list[0][0][0]
         assert apply_cmd == ["kubectl", "apply", "-f", "-"]
         assert mock.call_count == 1
+
+    def test_build_rolls_out_matching_deployment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
+        # The regression this guards: `kubectl apply` is a no-op when the
+        # manifest text is unchanged, which is always the case with the fixed
+        # `:latest` tag. Without the restart the freshly built image never ships.
+        write_manifest(tmp_path, "ollama")
+        write_dockerfile(tmp_path, "ollama")
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
+        with patch(
+            "subprocess.run",
+            side_effect=[
+                _cp(),  # docker buildx
+                _cp(),  # kubectl apply
+                _cp(stdout='{"items": [{"metadata": {"name": "ollama"}}]}'),  # listing
+                _cp(),  # kubectl rollout restart
+            ],
+        ) as mock:
+            result = runner.invoke(app, ["deploy", "ollama"])
+        assert result.exit_code == 0
+        restart_cmd = mock.call_args_list[-1].args[0]
+        assert restart_cmd[:3] == ["kubectl", "rollout", "restart"]
+        assert "app=ollama" in restart_cmd
+        assert "rollout restart deploy/ollama" in result.output
+
+    def test_no_restart_flag_suppresses_rollout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
+        write_manifest(tmp_path, "ollama")
+        write_dockerfile(tmp_path, "ollama")
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
+        with patch("subprocess.run", return_value=_cp()) as mock:
+            result = runner.invoke(app, ["deploy", "ollama", "--no-restart"])
+        assert result.exit_code == 0
+        # docker buildx + kubectl apply only.
+        assert mock.call_count == 2
+
+    def test_restart_flag_without_build(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
+        write_manifest(tmp_path, "ollama")
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
+        with patch(
+            "subprocess.run",
+            side_effect=[
+                _cp(),  # kubectl apply
+                _cp(stdout='{"items": [{"metadata": {"name": "ollama"}}]}'),
+                _cp(),  # kubectl rollout restart
+            ],
+        ) as mock:
+            result = runner.invoke(app, ["deploy", "ollama", "--no-build", "--restart"])
+        assert result.exit_code == 0
+        assert mock.call_args_list[-1].args[0][:3] == ["kubectl", "rollout", "restart"]
+
+    def test_restart_honours_namespace(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+    ) -> None:
+        write_manifest(tmp_path, "ollama")
+        monkeypatch.setattr(_settings, "repo_root", tmp_path)
+        monkeypatch.setattr(_settings, "k8s_path", tmp_path / "k8s")
+        monkeypatch.setattr(_settings, "docker_path", tmp_path / "docker")
+        with patch(
+            "subprocess.run",
+            side_effect=[
+                _cp(),
+                _cp(stdout='{"items": [{"metadata": {"name": "ollama"}}]}'),
+                _cp(),
+            ],
+        ) as mock:
+            result = runner.invoke(
+                app, ["deploy", "ollama", "--no-build", "--restart", "-n", "docs"]
+            )
+        assert result.exit_code == 0
+        restart_cmd = mock.call_args_list[-1].args[0]
+        assert restart_cmd[restart_cmd.index("-n") + 1] == "docs"
 
 
 class TestRemove:

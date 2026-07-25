@@ -97,6 +97,17 @@ def deploy(
     build: bool = typer.Option(
         True, "--build/--no-build", help="Build and push image before applying."
     ),
+    restart: bool | None = typer.Option(
+        None,
+        "--restart/--no-restart",
+        help=(
+            "Roll out the pods after applying. Defaults to restarting only when "
+            "a new image was built."
+        ),
+    ),
+    namespace: str = typer.Option(
+        _DEFAULT_NAMESPACE, "--namespace", "-n", help="Kubernetes namespace."
+    ),
 ) -> None:
     """Apply k8s/<name>.yaml (or an arbitrary manifest), optionally building first.
 
@@ -104,17 +115,35 @@ def deploy(
     image is built and pushed to unregistry before the manifest is applied.
     Pass --no-build to skip the build step (e.g. when re-deploying an image
     that is already in the registry, or when target is a manifest path).
+
+    A build is followed by a rollout restart of the Deployments labelled
+    app=<name>. `kubectl apply` is declarative, so an unchanged manifest is a
+    no-op -- and because every image is pinned to the fixed `:latest` tag, the
+    manifest does *not* change when the image does. Without the restart the new
+    image sits in the registry while the old pods keep serving. Use --restart to
+    force one without rebuilding, or --no-restart to suppress it.
     """
     candidate = Path(target)
     is_path = candidate.is_file()
     manifest, label = _resolve_manifest_target(target)
 
+    built = False
     if build and not is_path:
         dockerfile = settings.docker_path / f"Dockerfile.{target}"
         if dockerfile.exists():
             _publish(target)
+            built = True
 
     kubectl.apply(manifest.read_text(), label=label)
+
+    if built if restart is None else restart:
+        restarted = kubectl.rollout_restart_by_label(f"app={label}", namespace=namespace)
+        if restarted:
+            for name in restarted:
+                typer.echo(f"+ kubectl rollout restart deploy/{name} [{namespace}]")
+        else:
+            typer.echo(f"  (no Deployment labelled app={label} in namespace '{namespace}')")
+
     typer.echo(f"\n[OK]  {label} deployed.")
 
 
