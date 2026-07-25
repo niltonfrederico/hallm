@@ -7,6 +7,63 @@
 #
 # Consumed as an MCP endpoint at https://jobspy.hallm.local/sse — not a
 # browsable UI, hence dashboard=false.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobspy-probe
+  namespace: default
+  labels:
+    app: jobspy
+data:
+  # Probe that exercises the MCP layer instead of just Express.
+  #
+  # /health is an Express route and answers 200 even when the MCP server is
+  # dead. That blind spot hid a crash loop for 16 days: the probe never fired,
+  # the process just died on its own and got recycled. This opens a real SSE
+  # session and waits for the `event: endpoint` frame the MCP transport emits
+  # on connect -- the exact path that used to throw "Already connected to a
+  # transport" on the second concurrent client.
+  #
+  # Cost, measured against the live pod: 40 sequential sessions moved RSS from
+  # 81780 kB to 81924 kB, i.e. GC noise. Sessions are released server-side on
+  # disconnect, so polling this every 30s does not accumulate.
+  mcp-probe.js: |
+    const http = require("http");
+
+    const PORT = process.env.JOBSPY_PORT || "9423";
+    const DEADLINE_MS = 4000;
+
+    const timer = setTimeout(() => {
+      console.error(`probe: no endpoint event within ${DEADLINE_MS}ms`);
+      process.exit(1);
+    }, DEADLINE_MS);
+
+    const req = http.get({ host: "127.0.0.1", port: PORT, path: "/sse" }, (res) => {
+      if (res.statusCode !== 200) {
+        console.error(`probe: /sse returned ${res.statusCode}`);
+        process.exit(1);
+      }
+      let buf = "";
+      res.on("data", (chunk) => {
+        buf += chunk;
+        if (buf.includes("event: endpoint")) {
+          clearTimeout(timer);
+          req.destroy();
+          process.exit(0);
+        }
+      });
+      res.on("end", () => {
+        console.error("probe: stream closed before the endpoint event");
+        process.exit(1);
+      });
+    });
+
+    req.on("error", (err) => {
+      console.error(`probe: ${err.message}`);
+      process.exit(1);
+    });
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,20 +105,42 @@ spec:
               # for large result sets without letting it run away.
               cpu: "1"
               memory: 768Mi
+          volumeMounts:
+            - name: probe
+              mountPath: /probe
+              readOnly: true
+          # /health stays as the *startup* gate only: it is the cheap "is the
+          # HTTP listener up yet" signal, and until it passes the kubelet runs
+          # neither of the two probes below.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9423
+            periodSeconds: 5
+            failureThreshold: 12
+          # Readiness reacts first and only pulls the pod out of the Service --
+          # a dead MCP layer stops being routed to instead of silently serving
+          # broken sessions.
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 9423
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 6
+            exec:
+              command: [node, /probe/mcp-probe.js]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+          # Liveness is the slower backstop: three consecutive failures (~3 min
+          # of dead protocol) means the process is not coming back on its own,
+          # so restart it. Deliberately more tolerant than readiness -- a
+          # scraper-induced stall should cost routing, not a kill.
           livenessProbe:
-            httpGet:
-              path: /health
-              port: 9423
-            initialDelaySeconds: 15
-            periodSeconds: 20
+            exec:
+              command: [node, /probe/mcp-probe.js]
+            periodSeconds: 60
+            timeoutSeconds: 5
             failureThreshold: 3
+      volumes:
+        - name: probe
+          configMap:
+            name: jobspy-probe
 ---
 apiVersion: v1
 kind: Service
