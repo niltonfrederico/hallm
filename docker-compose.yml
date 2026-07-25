@@ -24,6 +24,12 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      # `hallm network apply` points the host resolver at 127.0.0.1 (dnsmasq),
+      # which does not exist inside a build container -- apt-get then fails with
+      # "Temporary failure resolving deb.debian.org". Building on the host
+      # network is the same workaround `hallm container publish` already applies
+      # via `docker buildx build --network=host`.
+      network: host
     restart: unless-stopped
     depends_on:
       postgres:
@@ -41,6 +47,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.test
+      network: host          # see the `app` service for why
     env_file: .env.example
     environment:
       DATABASE_URL: "sqlite://:memory:"
@@ -54,6 +61,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.test
+      network: host          # see the `app` service for why
     env_file: .env
     environment:
       DATABASE_URL: "sqlite://:memory:"
@@ -68,6 +76,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.test
+      network: host          # see the `app` service for why
     command: [ "pre-commit", "run", "--all-files" ]
     profiles: [ "lint" ]
     volumes:

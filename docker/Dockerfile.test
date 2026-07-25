@@ -12,14 +12,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends git libatomic1 
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-COPY pyproject.toml README.md ./
+# uv.lock is copied alongside pyproject.toml and both syncs run --frozen, so the
+# image installs the *locked* versions instead of re-resolving. Without the lock
+# the tests validated whatever uv happened to resolve at build time, which is
+# not what the repo ships -- a dependency bump could pass here and still be
+# untested. --frozen also makes the build fail loudly when the lock drifts out
+# of sync with pyproject.toml, instead of silently papering over it.
+COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-install-project
+    uv sync --frozen --no-install-project
 
 COPY hallm/ hallm/
 COPY tests/ tests/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync
+    uv sync --frozen
 
 ENV PATH="/app/.venv/bin:$PATH"
 
