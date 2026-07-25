@@ -4,8 +4,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Unified diffs encode a blank context line as a single space, so
+      # stripping trailing whitespace silently corrupts every .patch under
+      # docker/ and makes `git apply` fail during the image build.
       - id: trailing-whitespace
+        exclude: \.(patch|diff)$
       - id: end-of-file-fixer
+        exclude: \.(patch|diff)$
       - id: check-yaml
         exclude: ^k8s/
       - id: check-yaml
@@ -25,14 +30,14 @@ repos:
       - id: debug-statements
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+    rev: v0.16.0
     hooks:
       - id: ruff
         args: [ --fix ]
       - id: ruff-format
 
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.22.1
+    rev: v0.23.1
     hooks:
       - id: markdownlint-cli2
         name: markdownlint (ai config)
